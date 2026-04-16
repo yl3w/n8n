@@ -1,0 +1,31 @@
+# Python / uv
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+.python-version-local
+.pytest_cache/
+
+# Pulumi
+.pulumi/
+
+# Local environment
+.env
+.env.local
+*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Secrets — explicitly excluded even though our flow shouldn't put them here
+*.pem
+*.key
+secrets/
