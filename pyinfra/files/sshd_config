@@ -1,0 +1,68 @@
+# /etc/ssh/sshd_config — managed by pyinfra (vpsconfig repo)
+# Do not edit manually on the VPS. Changes will be overwritten.
+# Based on Ubuntu 24.04 OpenSSH defaults with hardening applied.
+
+# Do not include drop-in configs — this file is the single source of truth.
+# Include /etc/ssh/sshd_config.d/*.conf
+
+# --- Network ---
+Port 22
+AddressFamily any
+ListenAddress 0.0.0.0
+ListenAddress ::
+
+# --- Host keys ---
+HostKey /etc/ssh/ssh_host_ed25519_key
+HostKey /etc/ssh/ssh_host_rsa_key
+HostKey /etc/ssh/ssh_host_ecdsa_key
+
+# --- Authentication ---
+PermitRootLogin no
+PubkeyAuthentication yes
+PasswordAuthentication no
+PermitEmptyPasswords no
+KbdInteractiveAuthentication no
+MaxAuthTries 3
+LoginGraceTime 30
+StrictModes yes
+MaxSessions 10
+
+# Only these users may log in via SSH
+AllowUsers maddalab coolify
+
+# --- Key files ---
+AuthorizedKeysFile .ssh/authorized_keys
+
+# --- Disable unused auth methods ---
+HostbasedAuthentication no
+IgnoreRhosts yes
+KerberosAuthentication no
+GSSAPIAuthentication no
+
+# --- PAM (required for Ubuntu account/session handling) ---
+UsePAM yes
+
+# --- Forwarding (all disabled — not needed) ---
+X11Forwarding no
+AllowAgentForwarding no
+AllowTcpForwarding no
+GatewayPorts no
+PermitTunnel no
+
+# --- Session ---
+PrintMotd no
+PrintLastLog yes
+TCPKeepAlive yes
+ClientAliveInterval 300
+ClientAliveCountMax 2
+PermitUserEnvironment no
+
+# --- Locale passthrough ---
+AcceptEnv LANG LC_*
+
+# --- SFTP ---
+Subsystem sftp /usr/lib/openssh/sftp-server
+
+# --- Logging ---
+SyslogFacility AUTH
+LogLevel INFO
