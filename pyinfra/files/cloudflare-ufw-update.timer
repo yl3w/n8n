@@ -1,0 +1,10 @@
+[Unit]
+Description=Weekly refresh of Cloudflare IP allowlist for ufw
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
