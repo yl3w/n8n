@@ -1,0 +1,8 @@
+[Unit]
+Description=Prune unused Docker resources older than 7 days
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/docker system prune -af --volumes --filter "until=168h"
