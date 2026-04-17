@@ -11,10 +11,10 @@ vps_ipv6 = config.require("vpsIPv6")
 n8n_subdomain = config.require("n8nSubdomain")
 
 # --- Look up the existing zone (registered via Cloudflare Registrar) ---
-zone = cloudflare.get_zone(filter=cloudflare.GetZoneFilterArgs(name=domain))
+zone = cloudflare.get_zone(filter=cloudflare.GetZoneFilterArgs(name=domain, match="all"))
 
 # --- DNS records for n8n.<domain>, both A and AAAA, both proxied ---
-n8n_a = cloudflare.Record(
+n8n_a = cloudflare.DnsRecord(
     "n8n_a",
     zone_id=zone.zone_id,
     name=n8n_subdomain,
@@ -25,7 +25,7 @@ n8n_a = cloudflare.Record(
     comment="n8n service — managed by Pulumi (vpsconfig repo)",
 )
 
-n8n_aaaa = cloudflare.Record(
+n8n_aaaa = cloudflare.DnsRecord(
     "n8n_aaaa",
     zone_id=zone.zone_id,
     name=n8n_subdomain,
