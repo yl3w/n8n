@@ -1,11 +1,29 @@
-"""System-level config: hostname, timezone, locale, swap file."""
+"""System-level config: hostname, timezone, locale, swap file.
 
+Reads 'hostname' from inventory host data so the same tasks work
+across multiple VPS instances.
+"""
+
+from pyinfra import host
 from pyinfra.operations import apt, files, server
+
+vps_hostname = host.data.get("hostname")
 
 # --- Hostname ---
 server.hostname(
-    name="Set hostname to satmur",
-    hostname="satmur",
+    name="Set hostname",
+    hostname=vps_hostname,
+)
+
+# Deploy managed /etc/hosts (Jinja2 template, uses inventory hostname)
+files.template(
+    name="Install managed /etc/hosts",
+    src="pyinfra/files/hosts.j2",
+    dest="/etc/hosts",
+    user="root",
+    group="root",
+    mode="644",
+    hostname=vps_hostname,
 )
 
 # --- Timezone (UTC) ---

@@ -31,9 +31,10 @@ grep -qE '^[0-9.]+/[0-9]+$' "$TMPDIR/v4.txt" || { logger -t "$LOG_TAG" "ERROR: v
 grep -qE '^[0-9a-f:]+/[0-9]+$' "$TMPDIR/v6.txt" || { logger -t "$LOG_TAG" "ERROR: v6 list malformed"; exit 1; }
 
 # Delete all existing cloudflare-managed rules by comment tag
+# grep returns 1 on no match — tolerate that (first run has no rules yet)
 ufw status numbered | grep 'cloudflare-managed' | awk -F'[][]' '{print $2}' | sort -rn | while read -r idx; do
     yes | ufw delete "$idx" >/dev/null 2>&1 || true
-done
+done || true
 
 # Add fresh rules
 while IFS= read -r cidr; do
