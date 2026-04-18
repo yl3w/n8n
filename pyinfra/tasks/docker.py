@@ -32,6 +32,11 @@ server.shell(
     ],
 )
 
+# Force apt update after adding Docker repo — cache_time won't detect a new repo
+apt.update(
+    name="Update apt after adding Docker repo",
+)
+
 # --- Docker engine + plugins ---
 apt.packages(
     name="Install Docker CE",
@@ -42,8 +47,6 @@ apt.packages(
         "docker-buildx-plugin",
         "docker-compose-plugin",
     ],
-    update=True,
-    cache_time=600,
 )
 
 # --- daemon.json ---
