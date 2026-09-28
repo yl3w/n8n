@@ -216,10 +216,11 @@ Configured manually in CheapWindowsVPS panel. Maintenance: re-check Cloudflare I
 Weekly `docker-prune.timer` (systemd) runs:
 
 ```
-docker system prune -af --volumes --filter "until=168h"
+docker system prune -af --filter "until=168h"
+docker volume prune -f
 ```
 
-(Removes stopped containers, unused images, dangling build cache, unused volumes older than 7 days.)
+(Removes stopped containers, unused images, and build cache older than 7 days, plus unused anonymous volumes. Docker rejects `until` combined with `--volumes`, hence two commands. Named volumes such as `n8n-data` are never pruned.)
 
 ### 10. AppArmor
 

@@ -1553,7 +1553,10 @@ After=docker.service
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/docker system prune -af --volumes --filter "until=168h"
+# `until` isn't supported together with --volumes, so volumes are pruned separately.
+# volume prune only removes unused anonymous volumes; named volumes (e.g. n8n-data) are kept.
+ExecStart=/usr/bin/docker system prune -af --filter "until=168h"
+ExecStart=/usr/bin/docker volume prune -f
 ```
 
 - [ ] **Step 3:** Create `pyinfra/files/docker-prune.timer`:
