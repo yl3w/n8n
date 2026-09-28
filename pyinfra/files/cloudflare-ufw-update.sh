@@ -37,19 +37,19 @@ ufw status numbered | grep 'cloudflare-managed' | awk -F'[][]' '{print $2}' | so
 done || true
 
 # Add fresh rules
-while IFS= read -r cidr; do
+while IFS= read -r cidr || [[ -n "$cidr" ]]; do
     [[ -z "$cidr" ]] && continue
     ufw allow proto tcp from "$cidr" to any port 80 comment 'cloudflare-managed' >/dev/null
     ufw allow proto tcp from "$cidr" to any port 443 comment 'cloudflare-managed' >/dev/null
 done < "$TMPDIR/v4.txt"
 
-while IFS= read -r cidr; do
+while IFS= read -r cidr || [[ -n "$cidr" ]]; do
     [[ -z "$cidr" ]] && continue
     ufw allow proto tcp from "$cidr" to any port 80 comment 'cloudflare-managed' >/dev/null
     ufw allow proto tcp from "$cidr" to any port 443 comment 'cloudflare-managed' >/dev/null
 done < "$TMPDIR/v6.txt"
 
 ufw reload >/dev/null
-V4_COUNT=$(wc -l < "$TMPDIR/v4.txt")
-V6_COUNT=$(wc -l < "$TMPDIR/v6.txt")
+V4_COUNT=$(grep -c . "$TMPDIR/v4.txt")
+V6_COUNT=$(grep -c . "$TMPDIR/v6.txt")
 logger -t "$LOG_TAG" "refresh complete — $V4_COUNT v4 + $V6_COUNT v6 ranges allowed on 80/443"
