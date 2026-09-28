@@ -29,3 +29,6 @@ Thumbs.db
 *.pem
 *.key
 secrets/
+
+# Coolify Cloud public key (pasted locally from the Coolify UI)
+pyinfra/files/coolify-cloud.pub
