@@ -30,6 +30,10 @@ fi
 grep -qE '^[0-9.]+/[0-9]+$' "$TMPDIR/v4.txt" || { logger -t "$LOG_TAG" "ERROR: v4 list malformed"; exit 1; }
 grep -qE '^[0-9a-f:]+/[0-9]+$' "$TMPDIR/v6.txt" || { logger -t "$LOG_TAG" "ERROR: v6 list malformed"; exit 1; }
 
+# Cache the validated lists for cloudflare-docker-firewall.sh (also used at boot)
+install -D -m 644 "$TMPDIR/v4.txt" /var/lib/cloudflare-ips/ips-v4
+install -D -m 644 "$TMPDIR/v6.txt" /var/lib/cloudflare-ips/ips-v6
+
 # Delete all existing cloudflare-managed rules by comment tag
 # grep returns 1 on no match — tolerate that (first run has no rules yet)
 ufw status numbered | grep 'cloudflare-managed' | awk -F'[][]' '{print $2}' | sort -rn | while read -r idx; do
@@ -53,3 +57,6 @@ ufw reload >/dev/null
 V4_COUNT=$(grep -c . "$TMPDIR/v4.txt")
 V6_COUNT=$(grep -c . "$TMPDIR/v6.txt")
 logger -t "$LOG_TAG" "refresh complete — $V4_COUNT v4 + $V6_COUNT v6 ranges allowed on 80/443"
+
+# ufw can't filter Docker-published ports — apply the same allowlist to DOCKER-USER
+/usr/local/sbin/cloudflare-docker-firewall.sh

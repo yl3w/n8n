@@ -1,0 +1,13 @@
+[Unit]
+Description=Restrict Docker-published ports to Cloudflare IPs
+After=network-online.target
+Wants=network-online.target
+Before=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/cloudflare-docker-firewall.sh
+
+[Install]
+WantedBy=multi-user.target

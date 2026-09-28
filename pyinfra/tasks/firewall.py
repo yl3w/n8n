@@ -52,7 +52,33 @@ files.put(
     mode="644",
 )
 
+# --- Same allowlist for Docker-published ports (ufw can't see them) ---
+files.put(
+    name="Install cloudflare-docker-firewall.sh",
+    src="pyinfra/files/cloudflare-docker-firewall.sh",
+    dest="/usr/local/sbin/cloudflare-docker-firewall.sh",
+    user="root",
+    group="root",
+    mode="755",
+)
+
+files.put(
+    name="Install cloudflare-docker-firewall.service",
+    src="pyinfra/files/cloudflare-docker-firewall.service",
+    dest="/etc/systemd/system/cloudflare-docker-firewall.service",
+    user="root",
+    group="root",
+    mode="644",
+)
+
 systemd.daemon_reload(name="systemctl daemon-reload")
+
+# Enabled only — cloudflare-ufw-update below applies the rules now; this re-applies at boot
+systemd.service(
+    name="Enable cloudflare-docker-firewall.service at boot",
+    service="cloudflare-docker-firewall.service",
+    enabled=True,
+)
 
 # Run the service NOW to populate Cloudflare rules before enabling ufw
 server.shell(
