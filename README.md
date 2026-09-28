@@ -1,7 +1,7 @@
 # vpsconfig
 
-Infrastructure-as-code for **n8n at https://n8n.satmur.com**: one hardened Ubuntu 24.04 VPS, managed by
-Coolify Cloud, behind Cloudflare.
+Infrastructure-as-code for **n8n at https://n8n.satmur.com**: one hardened Ubuntu 24.04 VPS dedicated to n8n,
+managed by Coolify Cloud, behind Cloudflare.
 
 | Layer | Tool | Where |
 |---|---|---|
@@ -21,7 +21,7 @@ Design rationale lives in `docs/superpowers/specs/`; the step-by-step build log 
  Cloudflare (proxied DNS, SSL "Full (strict)")        ◄── pulumi/
           │ only Cloudflare IPs may reach 80/443
           ▼
- VPS satmur — 198.144.178.149                         ◄── pyinfra/
+ n8n VPS                                              ◄── pyinfra/
    ufw + CLOUDFLARE-DOCKER iptables chain, fail2ban, unattended-upgrades
    Docker
      ├── coolify-proxy (Traefik v3, Let's Encrypt via Cloudflare DNS-01)
@@ -33,9 +33,11 @@ Design rationale lives in `docs/superpowers/specs/`; the step-by-step build log 
 
 Key facts:
 
-- **Hostname** `satmur`; IPv4 `198.144.178.149`, IPv6 `2606:c680:2000:2e::beeb:154d`.
-- **Users:** `maddalab` (human admin, SSH key + sudo **password**), `coolify` (Coolify Cloud agent,
-  passwordless sudo). Root login and password SSH are disabled (`AllowUsers maddalab coolify`).
+- **The n8n host:** this VPS runs n8n and nothing else. It's reached as `n8n` via the SSH alias in
+  [Local setup](#local-setup). Its hostname (`n8n`) and IPv4/IPv6 addresses come from your local `.env.vars`.
+- **Users:** one human admin account (SSH key + sudo **password**; the owner gives you its name,
+  written `<admin-user>` below; set as `ADMIN_USER` in `.env.vars`) and `coolify` (Coolify Cloud agent, passwordless sudo). Root login and
+  password SSH are disabled; `AllowUsers` in `pyinfra/files/sshd_config.j2` admits only these two.
 - **Web traffic** is accepted only from Cloudflare. Docker-published ports bypass ufw, so the same
   allowlist is also enforced in the `DOCKER-USER` → `CLOUDFLARE-DOCKER` chain. Both are refreshed weekly
   from Cloudflare's published ranges.
@@ -45,10 +47,11 @@ Key facts:
 ## Repository layout
 
 ```
+  .env.vars.example       template for .env.vars (gitignored): hostname, IPs, admin user
 pyinfra/
-  inventory.py            steady-state inventory (maddalab + sudo)
+  inventory.py            steady-state inventory (admin user + sudo)
   inventory_bootstrap.py  one-time: root, before users exist
-  bootstrap.py            one-time: create maddalab + coolify users
+  bootstrap.py            one-time: create the admin + coolify users
   tasks/                  one file per concern (see "Running pyinfra tasks")
   files/                  everything the tasks install (configs, scripts, units)
 pulumi/                   Cloudflare stack (DNS A/AAAA for n8n, zone SSL settings)
@@ -66,12 +69,13 @@ Ask the owner for each of these; nothing here works without them.
 
 | What | Why |
 |---|---|
-| **SSH access to the VPS** | Only keys in `maddalab`'s `authorized_keys` can log in. Send the owner your **public** key to add. Today there is a single admin account — see gaps. |
-| `maddalab` **sudo password** | pyinfra and most server commands prompt for it. |
-| **Pulumi Cloud** org `personal-bhaskar-maddala` | Stack state, and decryption of the secrets in `Pulumi.prod.yaml`. |
+| **`.env.vars` values** | The VPS hostname, IPv4/IPv6 and admin user name — deliberately not in git. |
+| **SSH access to the n8n host** | Only keys in the admin account's `authorized_keys` can log in. Send the owner your **public** key to add. Today there is a single admin account — see gaps. |
+| Admin account **name and sudo password** | pyinfra and most server commands prompt for it. |
+| **Pulumi Cloud** org membership (the owner's org) | Stack state, and decryption of the secrets in `Pulumi.prod.yaml`. |
 | **Coolify Cloud** team membership | UI access to the server and n8n service. |
 | **Cloudflare** account (zone `satmur.com`) | DNS, API tokens, R2. |
-| **Password-manager** entries | n8n owner login, `N8N_ENCRYPTION_KEY`, Cloudflare tokens, `maddalab` sudo password. |
+| **Password-manager** entries | n8n owner login, `N8N_ENCRYPTION_KEY`, Cloudflare tokens, admin sudo password. |
 
 ## Local setup
 
@@ -83,32 +87,37 @@ Ask the owner for each of these; nothing here works without them.
    (cd pulumi-coolify && pulumi install)   # ends with a harmless "linking package ... no pyproject.toml" error
    uv sync
    ```
-3. **Pulumi login:** `pulumi login` (Pulumi Cloud), then check both stacks resolve:
+3. **Local values:** create `.env.vars` from the template and fill in the values the owner gave you.
+   pyinfra and both Pulumi projects read it; a missing value stops them with a clear error.
+   ```sh
+   cp .env.vars.example .env.vars && chmod 600 .env.vars
+   ```
+4. **Pulumi login:** `pulumi login` (Pulumi Cloud), then check both stacks resolve:
    ```sh
    (cd pulumi && pulumi stack select prod && pulumi preview)
    (cd pulumi-coolify && pulumi stack select prod && pulumi preview)
    ```
    Both should report only `unchanged` resources. Anything else means someone changed things outside code — stop and investigate.
-4. **SSH key + alias.** The inventory expects the key at `~/.ssh/id_ed25519_vps`. Add to `~/.ssh/config`:
+5. **SSH key + alias.** The inventory expects the key at `~/.ssh/id_ed25519_vps`. Add to `~/.ssh/config`:
    ```
    Host n8n
-       HostName 198.144.178.149
-       User maddalab
+       HostName <vps-ipv4>
+       User <admin-user>
        IdentityFile ~/.ssh/id_ed25519_vps
        IdentitiesOnly yes
    ```
-   Then `ssh n8n` should give you a `maddalab@satmur` prompt.
+   Then `ssh n8n` should give you a shell on the n8n host.
 
 ## Day-to-day operations
 
 ### Connecting
 
 ```sh
-ssh n8n                          # shell as maddalab
+ssh n8n                          # shell as the admin user
 ssh -t n8n 'sudo docker ps'      # one-off sudo command (-t so sudo can prompt)
 ```
 
-`maddalab` is not in the `docker` group, so Docker commands need `sudo`.
+The admin user is not in the `docker` group, so Docker commands need `sudo`.
 
 ### Running pyinfra tasks
 
@@ -119,7 +128,7 @@ uv run pyinfra pyinfra/inventory.py pyinfra/tasks/firewall.py --dry
 uv run pyinfra pyinfra/inventory.py pyinfra/tasks/firewall.py
 ```
 
-You will be prompted for the `maddalab` sudo password. There is no "run everything" entry point yet;
+You will be prompted for the admin user's sudo password. There is no "run everything" entry point yet;
 for a full pass run them in this order:
 
 | Task | What it manages | Side effects |
@@ -164,7 +173,7 @@ the service, and run a workflow to smoke-test.
 curl -s https://n8n.satmur.com/healthz                    # {"status":"ok"}
 ssh n8n 'echo | openssl s_client -connect 127.0.0.1:443 -servername n8n.satmur.com 2>/dev/null \
   | openssl x509 -noout -issuer -enddate'                 # Let's Encrypt, not "TRAEFIK DEFAULT CERT"
-curl -s -m 5 http://198.144.178.149/ || echo "blocked"    # direct origin access must time out
+source .env.vars && curl -s -m 5 "http://$VPS_IPV4/" || echo "blocked"   # direct origin access must time out
 ```
 
 Common Cloudflare errors: **521** nothing listening on the VPS (proxy down); **526** origin certificate
@@ -181,6 +190,7 @@ Never commit secrets. They live in:
 | Coolify API token (`coolify:token`) | `pulumi-coolify/Pulumi.prod.yaml` (encrypted) |
 | Cloudflare DNS-01 token for Traefik (`cfDnsToken`, expires 2027-10-01) | `pulumi-coolify/Pulumi.prod.yaml` (encrypted) → injected into the proxy config |
 | `N8N_ENCRYPTION_KEY` (`n8nEncryptionKey`) | `pulumi-coolify/Pulumi.prod.yaml` (encrypted) **and** the password manager |
+| VPS hostname, IPs, admin user name (not secret, but kept out of this public repo) | `.env.vars` (gitignored) |
 | Coolify's SSH key (`n8n-vps`) | Coolify only; public half in `pyinfra/files/coolify-cloud.pub` (gitignored) |
 
 Set or rotate one with `pulumi config set --secret <name>` (it prompts; the value stays out of shell
@@ -198,7 +208,8 @@ regenerate it; losing it means re-entering every credential even with a full dat
   closing it. The VNC console in the VPS provider's panel is the fallback.
 - **Keep Cloudflare proxied.** Switching `n8n.satmur.com` to "DNS only" exposes the origin IP — and
   the firewall only admits Cloudflare, so the site would go down anyway.
-- **This repo is public.** Only commit placeholders and Pulumi ciphertext. Check for secrets before
+- **This repo is public.** Only commit placeholders and Pulumi ciphertext; server IPs and the admin user
+  name belong in `.env.vars`. Check for secrets before
   pushing (`git diff --cached`).
 - **Scripts that need sudo need a terminal.** Commands run by non-interactive tools can't answer the
   sudo prompt; run those in your own terminal.
@@ -212,7 +223,7 @@ Open:
 
 1. **No backups (Phase 9).** Losing the VPS or its disk loses all workflows and credentials. Planned:
    daily restic snapshots of `n8n-data` (with a consistent `sqlite3 .backup`) to Cloudflare R2.
-2. **Single admin account.** Everyone with access shares `maddalab`. Per-person users would give
+2. **Single admin account.** Everyone with access shares one admin account. Per-person users would give
    individual audit trails and revocation.
 3. **No uptime monitoring (Phase 10)** and no aggregate `deploy.py` (Phase 11).
 4. **Provider-level firewall (Phase 5)** in the VPS panel: status unknown; SSH (22) is open to the

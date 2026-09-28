@@ -32,3 +32,6 @@ secrets/
 
 # Coolify Cloud public key (pasted locally from the Coolify UI)
 pyinfra/files/coolify-cloud.pub
+
+# Deployment-specific values (template: .env.vars.example)
+.env.vars

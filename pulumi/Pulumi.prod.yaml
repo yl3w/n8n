@@ -1,7 +1,5 @@
 config:
   satmur:domain: satmur.com
-  satmur:vpsIPv4: 198.144.178.149
-  satmur:vpsIPv6: 2606:c680:2000:2e::beeb:154d
   satmur:n8nSubdomain: n8n
   cloudflare:apiToken:
     secure: AAABAEs/PEYUdcAOGtHuDRuO8iew/1NQFfjbLsg3pj5j15DF0q8MjSl4/b/Hk9zSPon51cTmSyONvwD/kKiRqi/BEsBkhhLpcVgso7c5pP2cMYeLig==

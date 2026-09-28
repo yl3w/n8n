@@ -5,12 +5,14 @@ No drop-in configs — the entire sshd config is explicit in one file.
 ALWAYS verify non-root admin user works BEFORE running this.
 """
 
+from pyinfra import host
 from pyinfra.operations import files, server, systemd
 
-# Deploy the full managed sshd_config
-files.put(
+# Deploy the full managed sshd_config (AllowUsers takes the inventory's admin_user)
+files.template(
     name="Install managed sshd_config",
-    src="pyinfra/files/sshd_config",
+    src="pyinfra/files/sshd_config.j2",
+    admin_user=host.data.admin_user,
     dest="/etc/ssh/sshd_config",
     user="root",
     group="root",

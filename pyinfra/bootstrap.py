@@ -1,18 +1,21 @@
-"""One-time bootstrap: create maddalab and coolify users.
+"""One-time bootstrap: create the admin user (ADMIN_USER in .env.vars) and coolify.
 
 Run: uv run pyinfra pyinfra/inventory_bootstrap.py pyinfra/bootstrap.py
 """
 
 from pathlib import Path
+from pyinfra import host
 from pyinfra.operations import files, server
+
+admin_user = host.data.admin_user
 
 LAPTOP_PUBKEY_PATH = Path.home() / ".ssh" / "id_ed25519_vps.pub"
 laptop_pubkey = LAPTOP_PUBKEY_PATH.read_text().strip()
 
-# --- maddalab user: human admin, sudo with password ---
+# --- admin user: human admin, sudo with password ---
 server.user(
-    name="Create maddalab admin user",
-    user="maddalab",
+    name=f"Create admin user {admin_user}",
+    user=admin_user,
     groups=["sudo"],
     shell="/bin/bash",
     create_home=True,
@@ -20,25 +23,25 @@ server.user(
 )
 
 files.directory(
-    name="Ensure maddalab .ssh directory",
-    path="/home/maddalab/.ssh",
-    user="maddalab",
-    group="maddalab",
+    name="Ensure admin .ssh directory",
+    path=f"/home/{admin_user}/.ssh",
+    user=admin_user,
+    group=admin_user,
     mode="700",
 )
 
 files.file(
-    name="Ensure maddalab authorized_keys exists",
-    path="/home/maddalab/.ssh/authorized_keys",
-    user="maddalab",
-    group="maddalab",
+    name="Ensure admin authorized_keys exists",
+    path=f"/home/{admin_user}/.ssh/authorized_keys",
+    user=admin_user,
+    group=admin_user,
     mode="600",
     touch=True,
 )
 
 files.line(
-    name="Add laptop public key to maddalab authorized_keys",
-    path="/home/maddalab/.ssh/authorized_keys",
+    name="Add laptop public key to admin authorized_keys",
+    path=f"/home/{admin_user}/.ssh/authorized_keys",
     line=laptop_pubkey,
 )
 

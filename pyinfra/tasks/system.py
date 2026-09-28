@@ -10,6 +10,8 @@ from pyinfra.operations import apt, files, server
 vps_hostname = host.data.get("hostname")
 
 # --- Hostname ---
+# When renaming, the next sudo call may print "sudo: unable to resolve host <name>"
+# once, until /etc/hosts below is updated. Harmless.
 server.hostname(
     name="Set hostname",
     hostname=vps_hostname,

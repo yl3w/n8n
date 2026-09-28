@@ -9,12 +9,24 @@ Setup on a fresh clone (sdks/ is generated, not committed):
     uv sync                               # the root pyproject.toml links sdks/coolify
 """
 
+import os
 from pathlib import Path
 
 import pulumi
 import pulumi_coolify as coolify
+from dotenv import load_dotenv
 
 HERE = Path(__file__).parent
+# VPS address comes from .env.vars (template: .env.vars.example)
+load_dotenv(HERE.resolve().parent / ".env.vars")
+
+
+def env(key: str) -> str:
+    value = os.environ.get(key)
+    if not value:
+        raise SystemExit(f"{key} is not set — copy .env.vars.example to .env.vars and fill it in")
+    return value
+
 config = pulumi.Config()
 cf_dns_token = config.require_secret("cfDnsToken")
 n8n_encryption_key = config.require_secret("n8nEncryptionKey")
@@ -37,7 +49,7 @@ server = coolify.Server(
     "n8n-server",
     name="n8n",
     description="n8n vps config",
-    ip="198.144.178.149",
+    ip=env("VPS_IPV4"),
     user="coolify",
     port=22,
     private_key_uuid=PRIVATE_KEY_UUID,

@@ -1,13 +1,28 @@
 """Cloudflare DNS and zone settings for satmur.com."""
 
+import os
+from pathlib import Path
+
 import pulumi
 import pulumi_cloudflare as cloudflare
+from dotenv import load_dotenv
+
+# VPS addresses come from .env.vars (template: .env.vars.example), not stack config
+load_dotenv(Path(__file__).resolve().parent.parent / ".env.vars")
+
+
+def env(key: str) -> str:
+    value = os.environ.get(key)
+    if not value:
+        raise SystemExit(f"{key} is not set — copy .env.vars.example to .env.vars and fill it in")
+    return value
+
 
 # --- Config ---
 config = pulumi.Config("satmur")
 domain = config.require("domain")
-vps_ipv4 = config.require("vpsIPv4")
-vps_ipv6 = config.require("vpsIPv6")
+vps_ipv4 = env("VPS_IPV4")
+vps_ipv6 = env("VPS_IPV6")
 n8n_subdomain = config.require("n8nSubdomain")
 
 # --- Look up the existing zone (registered via Cloudflare Registrar) ---

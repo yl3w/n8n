@@ -92,7 +92,7 @@ Expected: a single line starting `ssh-ed25519 AAAA…`. Copy this to clipboard f
 - [ ] **Step 1: Use ssh-copy-id with the dedicated key**
 
 ```bash
-ssh-copy-id -i ~/.ssh/id_ed25519_vps.pub root@198.144.178.149
+ssh-copy-id -i ~/.ssh/id_ed25519_vps.pub root@<vps-ipv4>
 ```
 
 You'll be prompted for the root password (one last time). Enter it.
@@ -101,7 +101,7 @@ Expected: "Number of key(s) added: 1".
 - [ ] **Step 2: Verify key-based login works (no password)**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps root@198.144.178.149 "whoami && hostname"
+ssh -i ~/.ssh/id_ed25519_vps root@<vps-ipv4> "whoami && hostname"
 ```
 
 Expected output:
@@ -389,8 +389,8 @@ In Cloudflare dashboard → click `satmur.com` zone → right sidebar shows **Ac
 cd ~/workspace/vpsconfig/pulumi
 uv run pulumi config set cloudflare:accountId <your-account-id>
 uv run pulumi config set satmur:domain satmur.com
-uv run pulumi config set satmur:vpsIPv4 198.144.178.149
-uv run pulumi config set satmur:vpsIPv6 2606:c680:2000:2e::beeb:154d
+uv run pulumi config set satmur:vpsIPv4 <vps-ipv4>
+uv run pulumi config set satmur:vpsIPv6 <vps-ipv6>
 uv run pulumi config set satmur:n8nSubdomain n8n
 ```
 
@@ -547,7 +547,7 @@ git commit -m "feat(pulumi): add Cloudflare DNS records and SSL settings for n8n
 
 ## Phase 3 — Pyinfra: SSH bootstrap (highest-risk phase)
 
-**Goal:** `maddalab` and `coolify` users exist, SSH is hardened (no root, no password), you've verified you can still log in. Mistakes here lock you out.
+**Goal:** `<admin-user>` and `coolify` users exist, SSH is hardened (no root, no password), you've verified you can still log in. Mistakes here lock you out.
 
 > **Discipline reminder:** Keep the existing `root` SSH session open in Terminal Window A throughout this phase. Test every change in a NEW terminal window. Only close Window A after Phase 3 is fully verified.
 
@@ -556,7 +556,7 @@ git commit -m "feat(pulumi): add Cloudflare DNS records and SSL settings for n8n
 - [ ] **Step 1 (manual):** Open Terminal Window A. SSH into the VPS as root using the key we set up:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps root@198.144.178.149
+ssh -i ~/.ssh/id_ed25519_vps root@<vps-ipv4>
 ```
 
 Leave this open for the entire phase. Don't close it.
@@ -572,11 +572,11 @@ Leave this open for the entire phase. Don't close it.
 
 Connects as root using the SSH key we already deployed via ssh-copy-id.
 After Phase 3 completes, this inventory is no longer used — switch to
-inventory.py (which connects as maddalab).
+inventory.py (which connects as <admin-user>).
 """
 
 vps = (
-    "198.144.178.149",
+    "<vps-ipv4>",
     {
         "ssh_user": "root",
         "ssh_key": "~/.ssh/id_ed25519_vps",
@@ -590,12 +590,12 @@ hosts = [vps]
 - [ ] **Step 2:** Create `pyinfra/inventory.py` (the steady-state inventory we'll use after Phase 3):
 
 ```python
-"""Inventory for the hardened state — connect as maddalab via SSH key."""
+"""Inventory for the hardened state — connect as <admin-user> via SSH key."""
 
 vps = (
-    "198.144.178.149",
+    "<vps-ipv4>",
     {
-        "ssh_user": "maddalab",
+        "ssh_user": "<admin-user>",
         "ssh_key": "~/.ssh/id_ed25519_vps",
         "ssh_port": 22,
     },
@@ -606,7 +606,7 @@ hosts = [vps]
 
 ### Task 3.3: Read your SSH public key into the deploy
 
-- [ ] **Step 1:** We need `maddalab` to receive your laptop's public key. The deploy will read it from the file at run time (not committed):
+- [ ] **Step 1:** We need `<admin-user>` to receive your laptop's public key. The deploy will read it from the file at run time (not committed):
 
 ```bash
 cat ~/.ssh/id_ed25519_vps.pub
@@ -619,7 +619,7 @@ Confirm output is your public key. (We'll reference this path in Python in the n
 - [ ] **Step 1:** Create `pyinfra/bootstrap.py`:
 
 ```python
-"""One-time bootstrap: create maddalab and coolify users.
+"""One-time bootstrap: create <admin-user> and coolify users.
 
 Run from the project root:
     uv run pyinfra pyinfra/inventory_bootstrap.py pyinfra/bootstrap.py
@@ -637,10 +637,10 @@ from pyinfra.operations import files, server
 LAPTOP_PUBKEY_PATH = Path.home() / ".ssh" / "id_ed25519_vps.pub"
 laptop_pubkey = LAPTOP_PUBKEY_PATH.read_text().strip()
 
-# --- maddalab user: human admin, sudo with password ---
+# --- <admin-user> user: human admin, sudo with password ---
 server.user(
-    name="Create maddalab admin user",
-    user="maddalab",
+    name="Create <admin-user> admin user",
+    user="<admin-user>",
     groups=["sudo"],
     shell="/bin/bash",
     create_home=True,
@@ -648,29 +648,29 @@ server.user(
 )
 
 files.directory(
-    name="Ensure maddalab .ssh directory",
-    path="/home/maddalab/.ssh",
-    user="maddalab",
-    group="maddalab",
+    name="Ensure <admin-user> .ssh directory",
+    path="/home/<admin-user>/.ssh",
+    user="<admin-user>",
+    group="<admin-user>",
     mode="700",
 )
 
 files.file(
-    name="Ensure maddalab authorized_keys exists",
-    path="/home/maddalab/.ssh/authorized_keys",
-    user="maddalab",
-    group="maddalab",
+    name="Ensure <admin-user> authorized_keys exists",
+    path="/home/<admin-user>/.ssh/authorized_keys",
+    user="<admin-user>",
+    group="<admin-user>",
     mode="600",
     touch=True,
 )
 
 files.line(
-    name="Add laptop public key to maddalab authorized_keys",
-    path="/home/maddalab/.ssh/authorized_keys",
+    name="Add laptop public key to <admin-user> authorized_keys",
+    path="/home/<admin-user>/.ssh/authorized_keys",
     line=laptop_pubkey,
 )
 
-# --- maddalab needs a password set so sudo works ---
+# --- <admin-user> needs a password set so sudo works ---
 # We DO NOT bake the password into git. The deploy will prompt operator
 # to set a password manually after this script. See Task 3.6.
 
@@ -740,39 +740,39 @@ cd ~/workspace/vpsconfig
 uv run pyinfra pyinfra/inventory_bootstrap.py pyinfra/bootstrap.py
 ```
 
-Expected output includes `[198.144.178.149] Success` for each operation. Final summary should show all green.
+Expected output includes `[<vps-ipv4>] Success` for each operation. Final summary should show all green.
 
 If anything fails — **STOP**. Do not proceed. Diagnose using Terminal Window A (you're root, you can read logs and revert).
 
-### Task 3.6: Set maddalab password (manual, on the VPS)
+### Task 3.6: Set <admin-user> password (manual, on the VPS)
 
 - [ ] **Step 1 (manual):** In Terminal Window A (still root on VPS):
 
 ```bash
-passwd maddalab
+passwd <admin-user>
 ```
 
-Choose a strong password. Type it twice. **Save it in your password manager** under entry `VPS satmur — maddalab sudo password`.
+Choose a strong password. Type it twice. **Save it in your password manager** under entry `VPS satmur — <admin-user> sudo password`.
 
 - [ ] **Step 2 (manual):** Verify password set:
 
 ```bash
-chage -l maddalab
+chage -l <admin-user>
 ```
 
 Expected: `Last password change` shows today's date.
 
-### Task 3.7: SANITY CHECK — verify maddalab login works
+### Task 3.7: SANITY CHECK — verify <admin-user> login works
 
 - [ ] **Step 1 (manual):** Open **Terminal Window C** (third terminal, separate from A and B).
 
-- [ ] **Step 2 (manual):** SSH as maddalab:
+- [ ] **Step 2 (manual):** SSH as <admin-user>:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4>
 ```
 
-Expected: prompt becomes `maddalab@vps149257-lr5:~$`. **No password prompted.**
+Expected: prompt becomes `<admin-user>@vps149257-lr5:~$`. **No password prompted.**
 
 - [ ] **Step 3 (manual): Verify sudo works (with password)**
 
@@ -787,8 +787,8 @@ Expected: prompts for password (the one you just set in Task 3.6), then prints `
 - [ ] **Step 4 (manual): If any of the above fails, do NOT proceed. Diagnose from Window A (still root).**
 
 Common failures:
-- "Permission denied (publickey)": the public key wasn't added to `/home/maddalab/.ssh/authorized_keys`. Check from Window A: `cat /home/maddalab/.ssh/authorized_keys`.
-- "sudo: maddalab is not in the sudoers file": the user wasn't added to the sudo group. Fix from Window A: `usermod -aG sudo maddalab`.
+- "Permission denied (publickey)": the public key wasn't added to `/home/<admin-user>/.ssh/authorized_keys`. Check from Window A: `cat /home/<admin-user>/.ssh/authorized_keys`.
+- "sudo: <admin-user> is not in the sudoers file": the user wasn't added to the sudo group. Fix from Window A: `usermod -aG sudo <admin-user>`.
 
 ### Task 3.8: Write SSH hardening task module
 
@@ -808,7 +808,7 @@ MaxAuthTries 3
 LoginGraceTime 30
 ClientAliveInterval 300
 ClientAliveCountMax 2
-AllowUsers maddalab coolify
+AllowUsers <admin-user> coolify
 Protocol 2
 X11Forwarding no
 AllowAgentForwarding no
@@ -872,16 +872,16 @@ uv run pyinfra pyinfra/inventory_bootstrap.py pyinfra/tasks/ssh.py
 
 Expected: success on all 3 operations.
 
-### Task 3.10: SANITY CHECK — SSH still works for maddalab, root is rejected
+### Task 3.10: SANITY CHECK — SSH still works for <admin-user>, root is rejected
 
 > **CRITICAL:** Do these tests in Windows B and C. Keep Window A (the existing root session) open — if anything is wrong, you can fix from there.
 
-- [ ] **Step 1 (manual): Verify maddalab can still log in (Window C)**
+- [ ] **Step 1 (manual): Verify <admin-user> can still log in (Window C)**
 
 Open a fresh Window C session:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "echo ok"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "echo ok"
 ```
 
 Expected: `ok`.
@@ -891,14 +891,14 @@ If this fails: **stop**. Use Window A (root) to fix `/etc/ssh/sshd_config.d/99-h
 - [ ] **Step 2 (manual): Verify root SSH login is rejected (Window B)**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps root@198.144.178.149 "echo unexpected_root_login"
+ssh -i ~/.ssh/id_ed25519_vps root@<vps-ipv4> "echo unexpected_root_login"
 ```
 
 Expected: `Permission denied (publickey)` or `Connection closed`.
 
 If you see `unexpected_root_login`: hardening didn't apply. Check `/etc/ssh/sshd_config.d/` from Window A.
 
-- [ ] **Step 3 (manual): Confirm only maddalab and coolify are in AllowUsers**
+- [ ] **Step 3 (manual): Confirm only <admin-user> and coolify are in AllowUsers**
 
 In Window C:
 
@@ -917,7 +917,7 @@ Verify the file matches what you wrote.
 ```bash
 cd ~/workspace/vpsconfig
 git add pyinfra/
-git commit -m "feat(pyinfra): bootstrap users (maddalab, coolify) and harden sshd"
+git commit -m "feat(pyinfra): bootstrap users (<admin-user>, coolify) and harden sshd"
 ```
 
 ---
@@ -926,19 +926,19 @@ git commit -m "feat(pyinfra): bootstrap users (maddalab, coolify) and harden ssh
 
 **Goal:** Hostname/timezone/swap set, ufw + Cloudflare-IP allowlist active, fail2ban running, unattended-upgrades configured, AppArmor verified.
 
-From here on, **all pyinfra commands use `inventory.py`** (which connects as `maddalab`). pyinfra will use sudo where needed.
+From here on, **all pyinfra commands use `inventory.py`** (which connects as `<admin-user>`). pyinfra will use sudo where needed.
 
 ### Task 4.1: Configure pyinfra to use sudo
 
 - [ ] **Step 1:** Update `pyinfra/inventory.py` to enable sudo:
 
 ```python
-"""Inventory for the hardened state — connect as maddalab via SSH key, escalate via sudo."""
+"""Inventory for the hardened state — connect as <admin-user> via SSH key, escalate via sudo."""
 
 vps = (
-    "198.144.178.149",
+    "<vps-ipv4>",
     {
-        "ssh_user": "maddalab",
+        "ssh_user": "<admin-user>",
         "ssh_key": "~/.ssh/id_ed25519_vps",
         "ssh_port": 22,
         "_sudo": True,
@@ -956,7 +956,7 @@ cd ~/workspace/vpsconfig
 uv run pyinfra pyinfra/inventory.py exec -- whoami
 ```
 
-When prompted, enter maddalab's sudo password. Expected output: `[198.144.178.149] >>> root`.
+When prompted, enter <admin-user>'s sudo password. Expected output: `[<vps-ipv4>] >>> root`.
 
 (If prompted multiple times, set `PYINFRA_SUDO_PASSWORD` env var or use `--sudo-password` flag.)
 
@@ -971,8 +971,8 @@ from pyinfra.operations import files, server, apt
 
 # --- Hostname ---
 server.hostname(
-    name="Set hostname to satmur",
-    hostname="satmur",
+    name="Set hostname",
+    hostname=vps_hostname,  # VPS_HOSTNAME in .env.vars, e.g. n8n
 )
 
 # --- Timezone (UTC) ---
@@ -1041,17 +1041,17 @@ cd ~/workspace/vpsconfig
 uv run pyinfra pyinfra/inventory.py pyinfra/tasks/system.py
 ```
 
-Expected: all operations succeed. The hostname change may show "Pending host: satmur" — normal.
+Expected: all operations succeed. The hostname change may show "Pending host: <hostname>" — normal.
 
 - [ ] **Step 4: Verify**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "hostname && timedatectl | grep 'Time zone' && swapon --show && cat /proc/sys/vm/swappiness"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "hostname && timedatectl | grep 'Time zone' && swapon --show && cat /proc/sys/vm/swappiness"
 ```
 
 Expected:
 ```
-satmur
+n8n
                 Time zone: UTC (UTC, +0000)
 NAME      TYPE SIZE USED PRIO
 /swapfile file   2G   0B   -2
@@ -1268,13 +1268,13 @@ Expected: all green. The "Run cloudflare-ufw-update" step may take ~10s.
 - [ ] **Step 7: Verify**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo ufw status verbose | head -20"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo ufw status verbose | head -20"
 ```
 
 Expected: shows `Status: active`, `Default: deny (incoming), allow (outgoing), deny (routed)`, and many `ALLOW IN` rules tagged `cloudflare-managed` plus the SSH rule.
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo ufw status numbered | grep -c cloudflare"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo ufw status numbered | grep -c cloudflare"
 ```
 
 Expected: a number > 30 (Cloudflare publishes ~15 v4 + ~7 v6 ranges, each times 2 ports = ~44 rules).
@@ -1282,7 +1282,7 @@ Expected: a number > 30 (Cloudflare publishes ~15 v4 + ~7 v6 ranges, each times 
 - [ ] **Step 8: Verify the timer**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "systemctl list-timers cloudflare-ufw-update.timer --no-pager"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "systemctl list-timers cloudflare-ufw-update.timer --no-pager"
 ```
 
 Expected: shows next run time.
@@ -1345,7 +1345,7 @@ uv run pyinfra pyinfra/inventory.py pyinfra/tasks/fail2ban.py
 - [ ] **Step 4: Verify**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo fail2ban-client status sshd"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo fail2ban-client status sshd"
 ```
 
 Expected output includes:
@@ -1452,7 +1452,7 @@ uv run pyinfra pyinfra/inventory.py pyinfra/tasks/unattended_upgrades.py
 - [ ] **Step 5: Verify config valid**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo unattended-upgrade --dry-run -d 2>&1 | tail -20"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo unattended-upgrade --dry-run -d 2>&1 | tail -20"
 ```
 
 Expected: completes without "Error" or "Exception". Final lines describe what would be installed (likely "No packages found that can be upgraded").
@@ -1462,7 +1462,7 @@ Expected: completes without "Error" or "Exception". Final lines describe what wo
 - [ ] **Step 1:** Verify enforce mode
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo aa-status | head -3"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo aa-status | head -3"
 ```
 
 Expected output:
@@ -1515,7 +1515,7 @@ curl -s https://www.cloudflare.com/ips-v6
 
 ```bash
 # SSH still works (port 22 from anywhere allowed)
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "echo provider_firewall_ok"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "echo provider_firewall_ok"
 ```
 
 Expected: `provider_firewall_ok`.
@@ -1694,7 +1694,7 @@ Expected: all green. Docker install pulls ~200MB of packages — give it a minut
 - [ ] **Step 3: Verify Docker**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo docker version && sudo docker info | grep -E '(Logging Driver|Live Restore|Cgroup)'"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo docker version && sudo docker info | grep -E '(Logging Driver|Live Restore|Cgroup)'"
 ```
 
 Expected:
@@ -1705,7 +1705,7 @@ Expected:
 - [ ] **Step 4: Verify prune timer**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "systemctl list-timers docker-prune.timer --no-pager"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "systemctl list-timers docker-prune.timer --no-pager"
 ```
 
 Expected: shows next scheduled run.
@@ -1742,7 +1742,7 @@ git commit -m "feat(pyinfra): install Docker CE with log rotation + weekly prune
 |---|---|
 | Server name | `n8n` |
 | Description | `n8n production VPS` |
-| IP Address | `198.144.178.149` |
+| IP Address | `<vps-ipv4>` |
 | User | `coolify` |
 | Port | `22` |
 
@@ -1809,7 +1809,7 @@ Expected: 1 operation, success.
 - [ ] **Step 5:** Verify
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo cat /home/coolify/.ssh/authorized_keys"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo cat /home/coolify/.ssh/authorized_keys"
 ```
 
 Expected: shows the Coolify Cloud public key.
@@ -1825,7 +1825,7 @@ Expected: green checkmarks for SSH connectivity, sudo, and Docker. (Coolify dete
 - [ ] **Step 3 (manual):** Verify on the VPS:
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo docker ps --format 'table {{.Names}}\t{{.Status}}'"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo docker ps --format 'table {{.Names}}\t{{.Status}}'"
 ```
 
 Expected: at least `coolify-sentinel` and `coolify-proxy` (Traefik) containers running.
@@ -2065,7 +2065,7 @@ restic backup "$MOUNT_PATH" "$STAGE_DIR/database.sqlite" \
     --exclude "$MOUNT_PATH/database.sqlite" \
     --exclude "$MOUNT_PATH/database.sqlite-wal" \
     --exclude "$MOUNT_PATH/database.sqlite-shm" \
-    --tag "n8n-volume" --host satmur
+    --tag "n8n-volume" --host n8n
 
 # Apply retention: 14 daily, 4 weekly, 6 monthly.
 restic forget --tag "n8n-volume" --keep-daily 14 --keep-weekly 4 --keep-monthly 6 --prune
@@ -2227,10 +2227,10 @@ git commit -m "feat(backups): daily restic snapshots of n8n volume + SQLite DB t
 
 ```bash
 # Pause
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo docker stop coolify-proxy"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo docker stop coolify-proxy"
 # (wait for alert email, ~6 min)
 # Resume
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo docker start coolify-proxy"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo docker start coolify-proxy"
 ```
 
 - [ ] **Step 4 (manual):** Confirm BetterStack reports "Recovered" within ~6 min.
@@ -2287,7 +2287,7 @@ uv run pyinfra pyinfra/inventory.py pyinfra/deploy.py
 cd pulumi && uv run pulumi up
 
 # SSH to VPS
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4>
 ```
 
 ## Setup from scratch
@@ -2311,14 +2311,14 @@ git commit -m "docs: add README"
 - [ ] **Step 1:** Create `RUNBOOK.md`:
 
 ```markdown
-# RUNBOOK — satmur (n8n on Coolify Cloud)
+# RUNBOOK — n8n host (n8n on Coolify Cloud)
 
 Day-to-day operational commands and recovery procedures.
 
 ## Connection details
 
-- VPS IP: `198.144.178.149`
-- SSH user: `maddalab` (key: `~/.ssh/id_ed25519_vps`)
+- VPS IP: `<vps-ipv4>`
+- SSH user: `<admin-user>` (key: `~/.ssh/id_ed25519_vps`)
 - Service URL: https://n8n.satmur.com
 - Coolify Cloud: https://app.coolify.io
 
@@ -2327,13 +2327,13 @@ Day-to-day operational commands and recovery procedures.
 ### SSH in
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4>
 ```
 
 ### View n8n logs
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo docker logs -f --tail 100 n8n"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo docker logs -f --tail 100 n8n"
 ```
 
 (Container name may vary; use `sudo docker ps` to find it.)
@@ -2349,25 +2349,25 @@ uv run pulumi -C pulumi up                                # Cloudflare
 ### Disk usage
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "df -h && sudo docker system df"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "df -h && sudo docker system df"
 ```
 
 ### Force Cloudflare IP refresh
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo systemctl start cloudflare-ufw-update.service"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo systemctl start cloudflare-ufw-update.service"
 ```
 
 ### Trigger restic backup manually
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo systemctl start restic-n8n-backup.service"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo systemctl start restic-n8n-backup.service"
 ```
 
 ### List restic snapshots
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic snapshots'"
+ssh -i ~/.ssh/id_ed25519_vps <admin-user>@<vps-ipv4> "sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic snapshots'"
 ```
 
 ## n8n upgrade procedure
@@ -2384,9 +2384,9 @@ ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'set -a && s
 ### Lost SSH key on laptop
 
 1. Use Virtualizor VNC console (in CheapWindowsVPS panel).
-2. Log in as `maddalab` with sudo password (from password manager).
-3. `sudo nano /home/maddalab/.ssh/authorized_keys` — add new pubkey.
-4. Test from laptop: `ssh -i ~/.ssh/<new-key> maddalab@198.144.178.149`.
+2. Log in as `<admin-user>` with sudo password (from password manager).
+3. `sudo nano /home/<admin-user>/.ssh/authorized_keys` — add new pubkey.
+4. Test from laptop: `ssh -i ~/.ssh/<new-key> <admin-user>@<vps-ipv4>`.
 
 ### Locked out by fail2ban
 
@@ -2571,7 +2571,7 @@ ssh -t n8n "sudo rm -rf /tmp/n8n-restore-test"
 - [ ] restic snapshot (incl. `/var/backups/n8n/database.sqlite`) exists in R2
 - [ ] BetterStack monitor green
 - [ ] Encryption key in password manager
-- [ ] Sudo password for `maddalab` in password manager
+- [ ] Sudo password for `<admin-user>` in password manager
 - [ ] All Cloudflare/R2 API tokens in password manager
 - [ ] All commits pushed to remote (if you've added one)
 

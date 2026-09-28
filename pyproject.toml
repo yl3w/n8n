@@ -8,6 +8,7 @@ dependencies = [
     "pulumi-cloudflare>=5.40",
     "pulumi-coolify",
     "pyinfra>=3.0",
+    "python-dotenv>=1.2.3",
 ]
 
 [tool.uv.workspace]

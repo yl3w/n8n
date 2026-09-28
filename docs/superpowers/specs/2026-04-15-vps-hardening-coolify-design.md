@@ -24,7 +24,7 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
 | **VPS provider** | CheapWindowsVPS (Virtualizor panel, Chicago `chi5` node) |
 | **OS** | Ubuntu 24.04 LTS (kernel 6.8) |
 | **Specs** | 3 GB RAM, 1 vCPU, 30 GB disk, no swap |
-| **Network** | Dual-stack: IPv4 `198.144.178.149`, IPv6 `2606:c680:2000:2e::beeb:154d` |
+| **Network** | Dual-stack: IPv4 `<vps-ipv4>`, IPv6 `<vps-ipv6>` |
 | **Provider firewall** | Available via Virtualizor "Firewall" tab (manual config, no API) |
 | **Current SSH** | `root` with password authentication |
 | **Domain** | `satmur.com` (registered via Cloudflare Registrar) |
@@ -62,7 +62,7 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
                   (Full strict)     │                          │ (DNS-01 cert renewal)
                                     ▼                          ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│                       VPS  satmur  (198.144.178.149)                   │
+│                       VPS  n8n  (<vps-ipv4>)                           │
 │  ┌────────────────────────────────────────────────────────────────┐    │
 │  │ Provider firewall (Virtualizor — manual)                       │    │
 │  │   allow: 22 (SSH) from anywhere                                │    │
@@ -77,7 +77,7 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
 │  │ SSH (sshd, port 22) + fail2ban                                 │    │
 │  │   - root login: disabled                                       │    │
 │  │   - password auth: disabled                                    │    │
-│  │   - keys only, AllowUsers maddalab coolify                     │    │
+│  │   - keys only, AllowUsers <admin-user> coolify                 │    │
 │  └────────────────────────────────────────────────────────────────┘    │
 │  ┌────────────────────────────────────────────────────────────────┐    │
 │  │ Docker daemon (log rotation + weekly prune)                    │    │
@@ -87,7 +87,7 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
 │  │   └─────┬──────┘  └────────────┘  └─────────┬────────┘         │    │
 │  │         └── proxies → coolify-network ──────┘                  │    │
 │  └────────────────────────────────────────────────────────────────┘    │
-│  Users: root (locked from SSH), maddalab (admin), coolify (CC agent)   │
+│  Users: root (no SSH login), <admin-user> (admin), coolify (CC agent)  │
 │  Swap: 2GB swapfile                                                    │
 └────────────────────────────────────────────────────────────────────────┘
                                     ▲
@@ -105,7 +105,7 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
 
 ### 1. Hostname, timezone, locale
 
-- **Hostname:** `satmur` (from current `vps149257-lr5`)
+- **Hostname:** `n8n` (from `VPS_HOSTNAME` in `.env.vars`; originally `vps149257-lr5`, then `satmur`)
 - **Timezone:** `UTC`
 - **Locale:** `en_US.UTF-8`
 
@@ -123,16 +123,16 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
 | User | Auth | Sudo | SSH allowed | Purpose |
 |---|---|---|---|---|
 | `root` | n/a | self | no | OS owner, unreachable via SSH |
-| `maddalab` | SSH key (your laptop's `id_ed25519_vps`) | password-required | yes | Daily admin login |
+| `<admin-user>` | SSH key (your laptop's `id_ed25519_vps`) | password-required | yes | Daily admin login |
 | `coolify` | SSH key (Coolify Cloud's pubkey) | NOPASSWD ALL | yes | Coolify Cloud agent connection |
 
 **Bootstrap order** (must be followed exactly to avoid lockout):
 1. Connect as `root` (current state)
-2. Create `maddalab` user with sudo + add laptop's public key
-3. **Manual sanity check** in second terminal: SSH as `maddalab`, run `sudo -i`. If broken, fix from root before continuing.
+2. Create `<admin-user>` user with sudo + add laptop's public key
+3. **Manual sanity check** in second terminal: SSH as `<admin-user>`, run `sudo -i`. If broken, fix from root before continuing.
 4. Create `coolify` user + add Coolify Cloud's public key + NOPASSWD sudoers entry
 5. Apply SSH hardening config (Section 4) and restart sshd
-6. **Manual sanity check** in third terminal: SSH as `maddalab` still works.
+6. **Manual sanity check** in third terminal: SSH as `<admin-user>` still works.
 7. Only then exit the original root session.
 
 ### 4. SSH hardening
@@ -149,7 +149,7 @@ MaxAuthTries 3
 LoginGraceTime 30
 ClientAliveInterval 300
 ClientAliveCountMax 2
-AllowUsers maddalab coolify
+AllowUsers <admin-user> coolify
 Protocol 2
 X11Forwarding no
 AllowAgentForwarding no
@@ -231,7 +231,7 @@ Verify enabled, in `enforce` mode (Ubuntu 24.04 default). No custom profiles at 
 Manual one-time steps (no automation):
 
 1. In Coolify Cloud → **Servers** → **New Server**
-2. Name: `satmur`, Host: `198.144.178.149`, Port: `22`, User: `coolify`
+2. Name: `n8n`, Host: `<vps-ipv4>`, Port: `22`, User: `coolify`
 3. Coolify shows a public SSH key — paste it into `coolify` user's `~/.ssh/authorized_keys` (Pyinfra task accepts this key as input)
 4. Coolify validates connection, runs install script (detects existing Docker, skips install)
 5. Pulls Sentinel container (metrics) and Traefik (reverse proxy) onto VPS
@@ -304,8 +304,8 @@ Both created manually in Cloudflare dashboard before first deploy. Calendar remi
 ### 17. Cloudflare zone resources (Pulumi-managed)
 
 ```
-cloudflare.Record                 "n8n_a"      A    n8n.satmur.com → 198.144.178.149              proxied=true
-cloudflare.Record                 "n8n_aaaa"   AAAA n8n.satmur.com → 2606:c680:2000:2e::beeb:154d  proxied=true
+cloudflare.Record                 "n8n_a"      A    n8n.satmur.com → <vps-ipv4>              proxied=true
+cloudflare.Record                 "n8n_aaaa"   AAAA n8n.satmur.com → <vps-ipv6>  proxied=true
 cloudflare.ZoneSettingsOverride   "satmur"
     ssl                       = "strict"
     min_tls_version          = "1.2"
@@ -371,7 +371,7 @@ Tier A explicitly excludes: Prometheus/Grafana/Loki, self-hosted log aggregation
 
 | Scenario | Procedure | Time |
 |---|---|---|
-| Lost SSH key on laptop | Use Virtualizor VNC console → `sudo -i` from `maddalab` (whose password you have) → add new key | 10 min |
+| Lost SSH key on laptop | Use Virtualizor VNC console → `sudo -i` from `<admin-user>` (whose password you have) → add new key | 10 min |
 | Locked out by fail2ban | Wait 1 hour, or VNC console → `fail2ban-client unban <ip>` | 1–10 min |
 | n8n database corrupted / bad migration | Stop n8n → restore SQLite snapshot from restic into the volume → start n8n | 30 min |
 | Encryption key lost AND VPS lost | Workflows recoverable from the restic SQLite snapshot; stored credentials NOT recoverable, must re-enter all API keys/OAuth | hours |
@@ -382,7 +382,7 @@ Tier A explicitly excludes: Prometheus/Grafana/Loki, self-hosted log aggregation
 
 ```bash
 # SSH in
-ssh maddalab@198.144.178.149
+ssh <admin-user>@<vps-ipv4>
 
 # View n8n logs
 docker logs -f --tail 100 n8n
@@ -393,10 +393,10 @@ uv run pyinfra inventory.py deploy.py    # VPS config
 uv run pulumi up                          # Cloudflare resources
 
 # Disk usage check
-ssh maddalab@198.144.178.149 "df -h && docker system df"
+ssh <admin-user>@<vps-ipv4> "df -h && docker system df"
 
 # Force Cloudflare IP refresh
-ssh maddalab@198.144.178.149 "sudo systemctl start cloudflare-ufw-update.service"
+ssh <admin-user>@<vps-ipv4> "sudo systemctl start cloudflare-ufw-update.service"
 
 # n8n upgrade procedure (see RUNBOOK.md for full steps)
 ```
@@ -420,7 +420,7 @@ vpsconfig/
 │   ├── deploy.py              # main deploy entrypoint
 │   ├── tasks/
 │   │   ├── system.py          # hostname, timezone, swap
-│   │   ├── users.py           # maddalab, coolify users
+│   │   ├── users.py           # <admin-user>, coolify users
 │   │   ├── ssh.py             # sshd hardening
 │   │   ├── firewall.py        # ufw + Cloudflare IP refresh
 │   │   ├── fail2ban.py
