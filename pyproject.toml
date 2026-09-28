@@ -6,5 +6,14 @@ requires-python = ">=3.12"
 dependencies = [
     "pulumi>=3.140",
     "pulumi-cloudflare>=5.40",
+    "pulumi-coolify",
     "pyinfra>=3.0",
 ]
+
+[tool.uv.workspace]
+members = [
+    "pulumi-coolify/sdks/coolify",
+]
+
+[tool.uv.sources]
+pulumi-coolify = { workspace = true, editable = true }

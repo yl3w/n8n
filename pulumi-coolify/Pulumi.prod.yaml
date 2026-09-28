@@ -1,0 +1,8 @@
+config:
+  coolify:endpoint: https://app.coolify.io
+  coolify:token:
+    secure: AAABACUwUTdAMLLbWqISknchr4EU5zpWdPPgRqbhW6qqo+e3Ji+YoJ2yYznQTnYJbnXFlmnLhbw8JHGfX6Vhc5a3ZBJK1UW59Dwebt9c6Tg=
+  vpsconfig-coolify:cfDnsToken:
+    secure: AAABABht3ZnkhQLtfXg5ianv+MmPnfBEFPiKkxk5/pznloR9y3BfQiLL+f4Ynbyl8sbKHjndt9CGfazvCgsrTREPtMcUQch6lecV1+yoewyj8RiuXQ==
+  vpsconfig-coolify:n8nEncryptionKey:
+    secure: AAABAPDHiY84i3K9NW9f+BQXUs+4eiT8an7dslq3geUdLyTv0/60qpkx5lb16NMsZMtBSQ40Q8I8A7+HEu3okA==

@@ -1,0 +1,14 @@
+name: vpsconfig-coolify
+description: Coolify Cloud resources (server, proxy, n8n service) for satmur
+runtime:
+  name: python
+  options:
+    virtualenv: ../.venv
+    toolchain: uv
+packages:
+  coolify:
+    source: terraform-provider
+    version: 1.4.0
+    parameters:
+      - coolify-terraform/coolify
+      - 0.1.24
