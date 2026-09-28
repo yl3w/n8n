@@ -1,4 +1,4 @@
-# vpsconfig
+# N8N Using VPS (over ssh) and coolify
 
 Infrastructure-as-code for **n8n at https://n8n.satmur.com**: one hardened Ubuntu 24.04 VPS dedicated to n8n,
 managed by Coolify Cloud, behind Cloudflare.
