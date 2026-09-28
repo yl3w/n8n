@@ -1844,7 +1844,7 @@ Expected: at least `coolify-sentinel` and `coolify-proxy` (Traefik) containers r
 
 **Goal:** n8n reachable at `https://n8n.satmur.com` with valid TLS cert, storing its data in SQLite on a persistent volume.
 
-**Why SQLite, not Postgres:** single-user, single-instance n8n. SQLite is n8n's default, needs no extra service, secrets, or memory, and lives in the same volume as the rest of n8n's state. Trade-offs accepted: no queue mode / horizontal scaling, and backups must snapshot the database file safely (Phase 9). Migrating to Postgres later means exporting and re-importing workflows and credentials.
+**Why SQLite:** single-user, single-instance n8n. SQLite is n8n's default, needs no extra service, secrets, or memory, and lives in the same volume as the rest of n8n's state. Trade-offs accepted: no queue mode / horizontal scaling, and backups must snapshot the database file safely (Phase 9). Moving to a separate database server later means exporting and re-importing workflows and credentials.
 
 ### Task 8.1: Create Coolify project + environment
 

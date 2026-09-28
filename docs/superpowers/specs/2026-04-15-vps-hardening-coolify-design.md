@@ -81,12 +81,11 @@ Take a fresh Ubuntu 24.04 LTS VPS — currently exposed to the public internet w
 │  └────────────────────────────────────────────────────────────────┘    │
 │  ┌────────────────────────────────────────────────────────────────┐    │
 │  │ Docker daemon (log rotation + weekly prune)                    │    │
-│  │   ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌─────────┐ │    │
-│  │   │  Traefik   │  │  Sentinel  │  │    n8n     │  │Postgres │ │    │
-│  │   │  (Coolify) │  │  (Coolify) │  │  1.74.1    │  │   16    │ │    │
-│  │   └─────┬──────┘  └────────────┘  └─────┬──────┘  └────┬────┘ │    │
-│  │         │ proxies → ────────────────────┘              │      │    │
-│  │         └──────────── coolify-network ────────────────┘      │    │
+│  │   ┌────────────┐  ┌────────────┐  ┌──────────────────┐         │    │
+│  │   │  Traefik   │  │  Sentinel  │  │  n8n 2.x         │         │    │
+│  │   │  (Coolify) │  │  (Coolify) │  │  SQLite (volume) │         │    │
+│  │   └─────┬──────┘  └────────────┘  └─────────┬────────┘         │    │
+│  │         └── proxies → coolify-network ──────┘                  │    │
 │  └────────────────────────────────────────────────────────────────┘    │
 │  Users: root (locked from SSH), maddalab (admin), coolify (CC agent)   │
 │  Swap: 2GB swapfile                                                    │
@@ -242,21 +241,19 @@ Manual one-time steps (no automation):
 Coolify Cloud
 └── Project: "automation"
     └── Environment: "production"
-        ├── Service: postgres-n8n   (postgres:16-alpine)
-        └── Service: n8n            (n8nio/n8n:1.74.1, depends_on postgres-n8n)
+        └── Service: n8n            (n8nio/n8n:<pinned 2.x tag>, SQLite)
 ```
 
-### 13. Postgres for n8n
+### 13. Database: SQLite
 
-- Image: `postgres:16-alpine`
-- Volume: Coolify-managed Docker volume mounted at `/var/lib/postgresql/data`
-- Database: `n8n`, user: `n8n`, password: Coolify-generated (in Coolify secret manager)
-- RAM ceiling: ~256 MB (Coolify "Resource Limits")
-- Network: only reachable inside `coolify` Docker network (no host port exposure)
+- n8n's built-in default — no separate database service, password, or RAM budget
+- File: `database.sqlite` inside n8n's volume (`/home/node/.n8n`), WAL mode via `DB_SQLITE_POOL_SIZE`
+- Fits a single-user, single-instance deployment; rules out n8n queue mode / horizontal scaling
+- Backups take an online `sqlite3 .backup` snapshot rather than copying the live file (see Backups)
 
 ### 14. n8n service
 
-- Image: `n8nio/n8n:1.74.1` (pinned; **verify latest stable at implementation time**; upgrade procedure documented in `RUNBOOK.md` and the Updates section below)
+- Image: `n8nio/n8n:<2.x tag>` (pinned; **verify latest stable at implementation time**; upgrade procedure documented in `RUNBOOK.md` and the Updates section below)
 - Volume: Coolify-managed Docker volume at `/home/node/.n8n`
 - Routing: Traefik label `n8n.satmur.com` → port 5678
 - RAM ceiling: ~768 MB
@@ -265,15 +262,13 @@ Coolify Cloud
 
 | Variable | Value |
 |---|---|
-| `DB_TYPE` | `postgresdb` |
-| `DB_POSTGRESDB_HOST` | `postgres-n8n` |
-| `DB_POSTGRESDB_DATABASE` | `n8n` |
-| `DB_POSTGRESDB_USER` | `n8n` |
-| `DB_POSTGRESDB_PASSWORD` | (Coolify secret) |
+| `DB_TYPE` | `sqlite` |
+| `DB_SQLITE_POOL_SIZE` | `2` (enables WAL) |
 | `N8N_HOST` | `n8n.satmur.com` |
 | `N8N_PROTOCOL` | `https` |
 | `N8N_PORT` | `5678` |
 | `WEBHOOK_URL` | `https://n8n.satmur.com/` |
+| `N8N_PROXY_HOPS` | `1` (behind Traefik) |
 | `N8N_ENCRYPTION_KEY` | (Coolify secret, also backed up in password manager) |
 | `GENERIC_TIMEZONE` | `UTC` |
 | `TZ` | `UTC` |
@@ -327,8 +322,8 @@ cloudflare.ZoneSettingsOverride   "satmur"
 2. `uv run pulumi up` — creates DNS records + zone settings
 3. Verify DNS: `dig n8n.satmur.com` returns Cloudflare anycast IPs
 4. `uv run pyinfra inventory.py deploy.py` — full VPS hardening + Docker + coolify user
-5. In Coolify Cloud UI: register server (Section 11), create project + Postgres service, deploy
-6. Create n8n service, attach to Postgres, paste env vars (Section 14), deploy
+5. In Coolify Cloud UI: register server (Section 11), create project
+6. Create n8n service with its `/home/node/.n8n` volume, paste env vars (Section 14), deploy
 7. Traefik obtains cert via DNS-01 (~30 sec)
 8. Open `https://n8n.satmur.com` → n8n setup wizard → create owner account
 9. **Immediately copy `N8N_ENCRYPTION_KEY` from Coolify secret manager to your password manager** ("n8n satmur.com" entry)
@@ -341,15 +336,14 @@ cloudflare.ZoneSettingsOverride   "satmur"
 | What | How | Where | Frequency | Retention |
 |---|---|---|---|---|
 | `N8N_ENCRYPTION_KEY` | Manual copy at first deploy | Password manager (1Password / Bitwarden) | Once | Forever |
-| Postgres data | Coolify built-in Postgres backup feature → S3-compatible | Cloudflare R2 bucket `satmur-backups`, prefix `postgres/` | Daily 03:00 UTC | 14 daily + 4 weekly + 6 monthly |
-| n8n volume (`/home/node/.n8n`) | `restic` weekly via systemd timer | Same R2 bucket, prefix `n8n-volume/` | Weekly | 4 weekly + 3 monthly |
+| n8n volume (`/home/node/.n8n`) incl. SQLite database | `restic` via systemd timer; the DB is captured as a consistent `sqlite3 .backup` snapshot (integrity-checked), the live DB files are excluded | Cloudflare R2 bucket `satmur-backups`, prefix `n8n-volume/` | Daily 03:00 UTC | 14 daily + 4 weekly + 6 monthly |
 
 **Cloudflare R2 setup:**
 - 1 bucket: `satmur-backups`
 - 1 R2 access token, scoped read+write to that bucket only
-- Token in Coolify secret manager (Postgres backups) and `/etc/restic/r2-credentials` mode 0600 (volume backups)
+- Token in `/etc/restic/r2-credentials` mode 0600 (root only)
 
-**Quarterly restore drill:** pull latest Postgres backup → restore to local empty Postgres → verify table counts match prod. Untested backups are not backups.
+**Quarterly restore drill:** restore latest restic snapshot to /tmp → `PRAGMA integrity_check` on the SQLite snapshot → verify workflow/credential counts match prod. Untested backups are not backups.
 
 ### Updates
 
@@ -361,7 +355,6 @@ cloudflare.ZoneSettingsOverride   "satmur"
 | Coolify control plane | Vendor-managed |
 | Coolify-managed Sentinel/Traefik on VPS | Vendor-pushed via control plane |
 | n8n | Manual, monthly review (procedure in `RUNBOOK.md`) |
-| Postgres major version | Manual via dump+restore, no urgency (Postgres 16 supported until Nov 2028) |
 
 ### Monitoring
 
@@ -379,9 +372,9 @@ Tier A explicitly excludes: Prometheus/Grafana/Loki, self-hosted log aggregation
 |---|---|---|
 | Lost SSH key on laptop | Use Virtualizor VNC console → `sudo -i` from `maddalab` (whose password you have) → add new key | 10 min |
 | Locked out by fail2ban | Wait 1 hour, or VNC console → `fail2ban-client unban <ip>` | 1–10 min |
-| Postgres corrupted | Stop service → restore latest R2 backup → start service | 30 min |
-| Encryption key lost AND VPS lost | Workflows recoverable from Postgres backup; stored credentials NOT recoverable, must re-enter all API keys/OAuth | hours |
-| VPS dies entirely | Provision new VPS → `git clone vpsconfig` → `uv run pyinfra inventory.py deploy.py` → register in Coolify → restore Postgres + n8n volume → update Pulumi inventory IP → `pulumi up` | 1–2 hours |
+| n8n database corrupted / bad migration | Stop n8n → restore SQLite snapshot from restic into the volume → start n8n | 30 min |
+| Encryption key lost AND VPS lost | Workflows recoverable from the restic SQLite snapshot; stored credentials NOT recoverable, must re-enter all API keys/OAuth | hours |
+| VPS dies entirely | Provision new VPS → `git clone vpsconfig` → `uv run pyinfra inventory.py deploy.py` → register in Coolify → deploy n8n → restore n8n volume + SQLite snapshot from restic → update Pulumi inventory IP → `pulumi up` | 1–2 hours |
 | Suspected compromise | Reprovision new VPS, do NOT migrate old data without inspection. Rotate every secret. | 1 day |
 
 ### Day-to-day commands (`RUNBOOK.md`)
@@ -443,7 +436,7 @@ vpsconfig/
 ## Known limitations / risks (honest catalog)
 
 1. **Single VPS = single point of failure.** No HA. ~2-hour recovery to a new VPS via runbook.
-2. **1 vCPU is the real constraint.** A single CPU-heavy workflow can starve everything else, including Postgres.
+2. **1 vCPU is the real constraint.** A single CPU-heavy workflow can starve everything else, including Traefik.
 3. **30 GB disk fills.** Mitigations: 7-day n8n execution retention, weekly Docker prune, alert on disk usage.
 4. **Coolify Cloud is a vendor dependency.** If they go down, VPS keeps running but management plane is gone. Migration to self-hosted Coolify is straightforward (same containers, run control plane yourself).
 5. **Cloudflare proxy is a vendor dependency.** If Cloudflare has an outage, n8n is unreachable (firewall blocks non-CF traffic). Manual 5-minute fallback: switch DNS to "DNS only" in CF dashboard.
