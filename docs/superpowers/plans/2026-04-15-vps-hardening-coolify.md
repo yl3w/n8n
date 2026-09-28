@@ -4,9 +4,9 @@
 
 **Goal:** Take the fresh Ubuntu 24.04 VPS (root password SSH, no firewall) and turn it into a hardened host running n8n via Coolify Cloud, with all configuration in code (Pyinfra + Pulumi).
 
-**Architecture:** Two automation tools split by layer — Pyinfra for VPS-side OS configuration over SSH, Pulumi for Cloudflare DNS/zone settings. Coolify Cloud manages n8n + Postgres on the hardened VPS via SSH as a dedicated `coolify` user. All long-lived secrets in password manager / Coolify secrets / Pulumi-encrypted config — never in git.
+**Architecture:** Two automation tools split by layer — Pyinfra for VPS-side OS configuration over SSH, Pulumi for Cloudflare DNS/zone settings. Coolify Cloud manages n8n (SQLite on a persistent volume) on the hardened VPS via SSH as a dedicated `coolify` user. All long-lived secrets in password manager / Coolify secrets / Pulumi-encrypted config — never in git.
 
-**Tech Stack:** Python (uv-managed), Pyinfra 3.x, Pulumi (Python SDK + Cloud free tier), Cloudflare R2 (backups), restic, n8n 1.74.x (verify latest at deploy time), Postgres 16, Docker, ufw, fail2ban, BetterStack (uptime monitoring).
+**Tech Stack:** Python (uv-managed), Pyinfra 3.x, Pulumi (Python SDK + Cloud free tier), Cloudflare R2 (backups), restic, n8n 2.x (pin exact tag at deploy time), SQLite, Docker, ufw, fail2ban, BetterStack (uptime monitoring).
 
 **Source of truth for every decision:** `docs/superpowers/specs/2026-04-15-vps-hardening-coolify-design.md`.
 
@@ -1737,7 +1737,7 @@ git commit -m "feat(pyinfra): install Docker CE with log rotation + weekly prune
 
 | Field | Value |
 |---|---|
-| Server name | `satmur` |
+| Server name | `n8n` |
 | Description | `n8n production VPS` |
 | IP Address | `198.144.178.149` |
 | User | `coolify` |
@@ -1813,7 +1813,7 @@ Expected: shows the Coolify Cloud public key.
 
 ### Task 7.4: Validate connection in Coolify Cloud UI
 
-- [ ] **Step 1 (manual):** Back in Coolify Cloud → **Servers → satmur** → click **Validate Server**.
+- [ ] **Step 1 (manual):** Back in Coolify Cloud → **Servers → n8n** → click **Validate Server**.
 
 Expected: green checkmarks for SSH connectivity, sudo, and Docker. (Coolify detects existing Docker and skips install.)
 
@@ -1829,7 +1829,7 @@ Expected: at least `coolify-sentinel` and `coolify-proxy` (Traefik) containers r
 
 ### Task 7.5: Configure Coolify with Cloudflare API token (for cert renewal)
 
-- [ ] **Step 1 (manual):** In Coolify Cloud → **Servers → satmur** → **Settings** (or **Proxy** tab — UI varies by version) → find the **Wildcard Domain** / **DNS-01 Challenge** section.
+- [ ] **Step 1 (manual):** In Coolify Cloud → **Servers → n8n** → **Settings** (or **Proxy** tab — UI varies by version) → find the **Wildcard Domain** / **DNS-01 Challenge** section.
 
 - [ ] **Step 2 (manual):** Configure DNS-01 with Cloudflare:
   - Provider: **Cloudflare**
@@ -1840,9 +1840,11 @@ Expected: at least `coolify-sentinel` and `coolify-proxy` (Traefik) containers r
 
 ---
 
-## Phase 8 — n8n + Postgres deployment via Coolify UI
+## Phase 8 — n8n deployment via Coolify UI (SQLite)
 
-**Goal:** n8n reachable at `https://n8n.satmur.com` with valid TLS cert, backed by Postgres.
+**Goal:** n8n reachable at `https://n8n.satmur.com` with valid TLS cert, storing its data in SQLite on a persistent volume.
+
+**Why SQLite, not Postgres:** single-user, single-instance n8n. SQLite is n8n's default, needs no extra service, secrets, or memory, and lives in the same volume as the rest of n8n's state. Trade-offs accepted: no queue mode / horizontal scaling, and backups must snapshot the database file safely (Phase 9). Migrating to Postgres later means exporting and re-importing workflows and credentials.
 
 ### Task 8.1: Create Coolify project + environment
 
@@ -1852,65 +1854,46 @@ Expected: at least `coolify-sentinel` and `coolify-proxy` (Traefik) containers r
 
 - [ ] **Step 2 (manual):** Inside the project: Coolify auto-creates a `production` environment. Confirm it exists.
 
-### Task 8.2: Deploy Postgres service
+### Task 8.2: Deploy n8n service
 
-- [ ] **Step 1 (manual):** In project → environment `production` → **+ New Resource → Database → PostgreSQL**.
+- [ ] **Step 1 (manual):** Look up the latest stable n8n version: https://docs.n8n.io/release-notes/ (cross-check tags at https://hub.docker.com/r/n8nio/n8n/tags)
 
-- [ ] **Step 2 (manual):** Configure:
-  - Server: `satmur`
-  - Name: `postgres-n8n`
-  - Database name: `n8n`
-  - Username: `n8n`
-  - Password: leave the auto-generated one (Coolify stores it in its secret manager)
-  - Image: `postgres:16-alpine`
+  Pin to that exact tag (e.g., `2.41.3`). Note the version in your password manager next to the `n8n satmur.com` entry.
 
-- [ ] **Step 3 (manual):** **Resource Limits** tab: set Memory limit `256m`.
-
-- [ ] **Step 4 (manual):** Click **Deploy**. Wait ~30s for "Running" status.
-
-- [ ] **Step 5 (manual):** Verify on VPS:
+- [ ] **Step 2: Generate the encryption key**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo docker ps --filter name=postgres -q | xargs -I{} sudo docker logs --tail 10 {}"
+openssl rand -base64 32 | tr -d /=+ | cut -c1-32
 ```
 
-Expected: PostgreSQL log lines ending with `database system is ready to accept connections`.
+Paste it into your password manager **now** under `n8n satmur.com — encryption key`. Once n8n encrypts credentials with this key, losing it = losing all credentials.
 
-### Task 8.3: Deploy n8n service
+- [ ] **Step 3 (manual):** In project → `production` → **+ New Resource → Docker Image**.
 
-- [ ] **Step 1 (manual):** Look up the latest stable n8n version: https://hub.docker.com/r/n8nio/n8n/tags
-
-  Pin to that exact tag (e.g., `1.79.0`). Note the version in your password manager next to the `n8n satmur.com` entry.
-
-- [ ] **Step 2 (manual):** In project → `production` → **+ New Resource → Application → Docker Image**.
-
-- [ ] **Step 3 (manual):** Configure:
-  - Server: `satmur`
+- [ ] **Step 4 (manual):** Configure:
+  - Server: `n8n`
   - Name: `n8n`
   - Image: `n8nio/n8n:<pinned-version>` (NOT `:latest`)
-  - Port (internal): `5678`
-  - Domain: `https://n8n.satmur.com`
+  - Ports Exposes: `5678`
+  - Domains: `https://n8n.satmur.com`
 
-- [ ] **Step 4 (manual):** **Storages** tab: add a persistent volume:
+- [ ] **Step 5 (manual):** **Storages** tab: add a persistent volume. **Load-bearing** — the SQLite database lives here; without it every redeploy wipes all workflows and credentials.
   - Name: `n8n-data`
-  - Container path: `/home/node/.n8n`
+  - Destination path: `/home/node/.n8n`
   - Host path: leave empty (Coolify-managed Docker volume)
 
-- [ ] **Step 5 (manual):** **Environment Variables** tab: add the following. For `DB_POSTGRESDB_PASSWORD`, click "Reveal" on the Postgres service to copy the password.
+- [ ] **Step 6 (manual):** **Environment Variables** tab (the "Developer view" accepts `KEY=value` lines):
 
 | Variable | Value | Mark as Secret? |
 |---|---|---|
-| `DB_TYPE` | `postgresdb` | no |
-| `DB_POSTGRESDB_HOST` | `postgres-n8n` | no |
-| `DB_POSTGRESDB_PORT` | `5432` | no |
-| `DB_POSTGRESDB_DATABASE` | `n8n` | no |
-| `DB_POSTGRESDB_USER` | `n8n` | no |
-| `DB_POSTGRESDB_PASSWORD` | (paste Postgres password) | yes |
+| `DB_TYPE` | `sqlite` | no |
+| `DB_SQLITE_POOL_SIZE` | `2` | no |
+| `N8N_ENCRYPTION_KEY` | (key from Step 2) | yes |
 | `N8N_HOST` | `n8n.satmur.com` | no |
 | `N8N_PROTOCOL` | `https` | no |
 | `N8N_PORT` | `5678` | no |
 | `WEBHOOK_URL` | `https://n8n.satmur.com/` | no |
-| `N8N_ENCRYPTION_KEY` | (generate 32 random chars below) | yes |
+| `N8N_PROXY_HOPS` | `1` | no |
 | `GENERIC_TIMEZONE` | `UTC` | no |
 | `TZ` | `UTC` | no |
 | `N8N_LOG_LEVEL` | `info` | no |
@@ -1920,31 +1903,35 @@ Expected: PostgreSQL log lines ending with `database system is ready to accept c
 | `EXECUTIONS_DATA_PRUNE` | `true` | no |
 | `EXECUTIONS_DATA_MAX_AGE` | `168` | no |
 
-To generate the encryption key:
+Notes:
+- `DB_SQLITE_POOL_SIZE` > 0 enables WAL mode (concurrent reads during writes).
+- `N8N_PROXY_HOPS=1` tells n8n it sits behind Traefik; without it n8n logs `X-Forwarded-For` validation errors and rate limiting misbehaves.
+- Execution pruning (7 days) keeps the SQLite file from growing unbounded.
 
-```bash
-openssl rand -base64 32 | tr -d /=+ | cut -c1-32
-```
-
-Copy the output, paste as `N8N_ENCRYPTION_KEY`. **Also paste it into your password manager NOW** under `n8n satmur.com — encryption key`. Once n8n encrypts credentials with this key, losing it = losing all credentials.
-
-- [ ] **Step 6 (manual):** **Resource Limits** tab: Memory limit `768m`.
-
-- [ ] **Step 7 (manual):** **Network** tab: ensure n8n is on the same Docker network as `postgres-n8n`. Coolify usually does this automatically when both services are in the same project.
+- [ ] **Step 7 (manual):** **Resource Limits** tab: Memory limit `768m`.
 
 - [ ] **Step 8 (manual):** Click **Deploy**. Watch the deploy log. First deploy includes:
   - Pull n8n image (~200MB)
-  - Traefik requests Let's Encrypt cert via DNS-01 (~30s; possibly longer on first run)
-  - n8n starts and connects to Postgres
+  - n8n creates `/home/node/.n8n/database.sqlite` and runs migrations
+  - Traefik requests the Let's Encrypt cert via DNS-01 in the background (~30s; possibly longer on first run)
 
 Expected final log lines: `Editor is now accessible via: https://n8n.satmur.com/`.
 
-If TLS cert fails:
-- Check Coolify's Cloudflare DNS provider config (Task 7.5)
+If TLS cert fails (Cloudflare returns 526 for more than a few minutes):
+- Check **Servers → n8n → Proxy → Logs** for `acme` / `cloudflare` errors
+- Check the Traefik config has `CF_DNS_API_TOKEN` and the `dnschallenge` flags (Task 7.5)
 - Check Cloudflare token has `Zone:DNS:Edit` scope
 - Check `dig _acme-challenge.n8n.satmur.com TXT` from your laptop — Traefik briefly creates this TXT record during cert issuance
 
-### Task 8.4: Initial n8n setup
+- [ ] **Step 9: Verify the database is on the volume**
+
+```bash
+ssh -t n8n 'sudo sh -c "ls -la /var/lib/docker/volumes/*n8n-data*/_data/"'
+```
+
+Expected: `database.sqlite` (plus `-wal` / `-shm` files while running) and `config`.
+
+### Task 8.3: Initial n8n setup
 
 - [ ] **Step 1 (manual):** Open https://n8n.satmur.com in your browser.
 
@@ -1963,15 +1950,15 @@ Expected: n8n owner setup wizard. Cert lock icon should be valid (no warning).
   4. Click **Execute Workflow** at the bottom
   5. Output should show `{ "hello": "world" }`
 
-### Task 8.5: Backup the encryption key (CRITICAL)
+### Task 8.4: Backup the encryption key (CRITICAL)
 
 - [ ] **Step 1 (manual):** Open Coolify → n8n service → **Environment Variables** → reveal `N8N_ENCRYPTION_KEY`.
 
-- [ ] **Step 2 (manual):** Confirm it matches what's in your password manager from Task 8.3 Step 5. If not, update the password manager NOW.
+- [ ] **Step 2 (manual):** Confirm it matches what's in your password manager from Task 8.2 Step 2. If not, update the password manager NOW.
 
-- [ ] **Step 3 (manual):** Add a calendar reminder: **Test n8n encryption key restore — 30 days**. The drill: stand up a fresh n8n container with this key, restore Postgres backup, verify a stored credential decrypts. (We'll do this for real in Phase 12.)
+- [ ] **Step 3 (manual):** Add a calendar reminder: **Test n8n encryption key restore — 30 days**. The drill: restore the SQLite database from restic, start a fresh n8n container with this key, verify a stored credential decrypts. (We'll do this for real in Phase 12.)
 
-### Task 8.6: Webhook end-to-end test
+### Task 8.5: Webhook end-to-end test
 
 - [ ] **Step 1 (manual):** In n8n: create a new workflow.
 
@@ -1990,36 +1977,19 @@ curl -X POST https://n8n.satmur.com/webhook/test -H "Content-Type: application/j
 
 Expected: HTTP 200, JSON response (n8n's default webhook output). The execution should appear in n8n's "Executions" tab with the payload.
 
-If you get HTTP 521/522 errors: Cloudflare can't reach origin. Check ufw allows Cloudflare IPs, check Traefik is running.
+If you get HTTP 521/522 errors: Cloudflare can't reach origin. Check `coolify-proxy` is running and the `CLOUDFLARE-DOCKER` chain allows current Cloudflare ranges.
 
-If you get HTTP 525: TLS handshake failure between Cloudflare and origin. Check the Let's Encrypt cert is valid on the VPS (may take a few minutes after first deploy).
+If you get HTTP 526: Cloudflare (Full strict) rejects the origin cert. Check the Let's Encrypt cert was issued (proxy logs; may take a few minutes after first deploy).
 
 ---
 
 ## Phase 9 — Backups
 
-**Goal:** Postgres backed up daily to R2; n8n volume backed up weekly via restic to R2.
+**Goal:** n8n's volume — including a consistent snapshot of the SQLite database — backed up daily via restic to R2.
 
-### Task 9.1: Configure Postgres backup in Coolify
+**Why a snapshot step:** copying `database.sqlite` while n8n writes to it can capture a torn, unrestorable file. The backup script first takes an online copy with `sqlite3 .backup` (safe while n8n is running), checks it with `PRAGMA integrity_check`, and backs up that copy instead of the live file.
 
-- [ ] **Step 1 (manual):** Coolify → `postgres-n8n` service → **Backups** tab → **+ New Backup**.
-
-- [ ] **Step 2 (manual):** Configure:
-  - Storage: **S3-compatible**
-  - Endpoint: your R2 endpoint URL from Task 1.4 (e.g., `https://<account>.r2.cloudflarestorage.com`)
-  - Bucket: `satmur-backups`
-  - Region: `auto`
-  - Access Key ID: from password manager
-  - Secret Access Key: from password manager (mark as secret)
-  - Path/Prefix: `postgres/`
-  - Schedule: `0 3 * * *` (daily at 03:00 UTC)
-  - Retention: 14 daily / 4 weekly / 6 monthly (use Coolify's retention dropdowns if available; otherwise script later)
-
-- [ ] **Step 3 (manual):** Click **Save**, then **Backup Now** to test.
-
-- [ ] **Step 4 (manual):** Verify in R2 dashboard: `satmur-backups/postgres/<timestamp>.sql.gz` (or similar) exists.
-
-### Task 9.2: restic for n8n volume → systemd timer
+### Task 9.1: restic for n8n volume → systemd timer
 
 - [ ] **Step 1:** Create `pyinfra/files/restic-env`:
 
@@ -2050,40 +2020,52 @@ echo "pyinfra/files/restic-env" >> .gitignore
 ```bash
 #!/usr/bin/env bash
 # Back up n8n's persistent volume to R2 via restic.
-# Run by restic-n8n-backup.service (weekly timer).
+# The live SQLite database is excluded; a consistent online copy made with
+# sqlite3 .backup is backed up in its place.
+# Run by restic-n8n-backup.service (daily timer).
 
 set -euo pipefail
 
-# Source credentials (RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_*)
+# Source and export credentials (RESTIC_REPOSITORY, RESTIC_PASSWORD, AWS_*)
+set -a
 # shellcheck source=/dev/null
 source /etc/restic/r2-credentials
+set +a
 
 LOG_TAG="restic-n8n-backup"
+STAGE_DIR="/var/backups/n8n"
+
+fail() { logger -t "$LOG_TAG" "ERROR: $*"; exit 1; }
 
 logger -t "$LOG_TAG" "starting backup"
 
-# Find the n8n Docker volume's mount path on the host.
-# Coolify-managed volumes live under /var/lib/docker/volumes/<name>/_data
-# Adjust VOL_NAME if your Coolify installation uses a different name.
-N8N_VOL=$(docker volume ls --quiet --filter "name=n8n" | head -1)
-if [[ -z "$N8N_VOL" ]]; then
-    logger -t "$LOG_TAG" "ERROR: no Docker volume matching 'n8n' found"
-    exit 1
-fi
-MOUNT_PATH="/var/lib/docker/volumes/${N8N_VOL}/_data"
-if [[ ! -d "$MOUNT_PATH" ]]; then
-    logger -t "$LOG_TAG" "ERROR: $MOUNT_PATH not found"
-    exit 1
-fi
+# Coolify-managed volumes live under /var/lib/docker/volumes/<name>/_data;
+# Coolify prefixes the name from Task 8.2 Step 5 with the resource UUID.
+mapfile -t VOLS < <(docker volume ls --quiet --filter "name=n8n-data")
+[[ ${#VOLS[@]} -eq 1 ]] || fail "expected 1 Docker volume matching 'n8n-data', found ${#VOLS[@]}"
+MOUNT_PATH="/var/lib/docker/volumes/${VOLS[0]}/_data"
+DB="$MOUNT_PATH/database.sqlite"
+[[ -f "$DB" ]] || fail "$DB not found"
+
+# Consistent online snapshot of the database (safe while n8n is writing).
+install -d -m 700 "$STAGE_DIR"
+rm -f "$STAGE_DIR/database.sqlite"
+sqlite3 "$DB" ".backup '$STAGE_DIR/database.sqlite'"
+CHECK=$(sqlite3 "$STAGE_DIR/database.sqlite" "PRAGMA integrity_check;")
+[[ "$CHECK" == "ok" ]] || fail "integrity_check on snapshot failed: $CHECK"
 
 # Initialize repo if not yet done (idempotent).
 restic snapshots >/dev/null 2>&1 || restic init
 
-# Back up.
-restic backup "$MOUNT_PATH" --tag "n8n-volume" --host satmur
+# Back up the volume minus the live DB files, plus the snapshot.
+restic backup "$MOUNT_PATH" "$STAGE_DIR/database.sqlite" \
+    --exclude "$MOUNT_PATH/database.sqlite" \
+    --exclude "$MOUNT_PATH/database.sqlite-wal" \
+    --exclude "$MOUNT_PATH/database.sqlite-shm" \
+    --tag "n8n-volume" --host satmur
 
-# Apply retention: 4 weekly, 3 monthly.
-restic forget --tag "n8n-volume" --keep-weekly 4 --keep-monthly 3 --prune
+# Apply retention: 14 daily, 4 weekly, 6 monthly.
+restic forget --tag "n8n-volume" --keep-daily 14 --keep-weekly 4 --keep-monthly 6 --prune
 
 logger -t "$LOG_TAG" "backup complete"
 ```
@@ -2092,7 +2074,7 @@ logger -t "$LOG_TAG" "backup complete"
 
 ```
 [Unit]
-Description=Weekly restic backup of n8n volume to R2
+Description=Daily restic backup of n8n volume (incl. SQLite snapshot) to R2
 After=docker.service network-online.target
 Wants=network-online.target
 
@@ -2105,12 +2087,12 @@ ExecStart=/usr/local/sbin/restic-n8n-backup.sh
 
 ```
 [Unit]
-Description=Weekly restic backup of n8n volume
+Description=Daily restic backup of n8n volume
 
 [Timer]
-OnCalendar=weekly
+OnCalendar=*-*-* 03:00:00
 Persistent=true
-RandomizedDelaySec=2h
+RandomizedDelaySec=30m
 
 [Install]
 WantedBy=timers.target
@@ -2119,13 +2101,13 @@ WantedBy=timers.target
 - [ ] **Step 5:** Create `pyinfra/tasks/backups.py`:
 
 ```python
-"""restic + R2 weekly backups of n8n Docker volume."""
+"""restic + R2 daily backups of the n8n Docker volume (SQLite snapshot included)."""
 
 from pyinfra.operations import apt, files, server, systemd
 
 apt.packages(
-    name="Install restic",
-    packages=["restic"],
+    name="Install restic + sqlite3",
+    packages=["restic", "sqlite3"],
     update=False,
 )
 
@@ -2193,27 +2175,27 @@ uv run pyinfra pyinfra/inventory.py pyinfra/tasks/backups.py
 - [ ] **Step 7: Trigger first backup manually to verify**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo systemctl start restic-n8n-backup.service && sudo journalctl -u restic-n8n-backup.service --no-pager -n 20"
+ssh -t n8n "sudo systemctl start restic-n8n-backup.service && sudo journalctl -t restic-n8n-backup -u restic-n8n-backup.service --no-pager -n 20"
 ```
 
-Expected: log shows "starting backup", restic init/snapshot output, "backup complete".
+Expected: log shows "starting backup", restic init/snapshot output, "backup complete". No `integrity_check` error.
 
 - [ ] **Step 8: Verify in R2**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'source /etc/restic/r2-credentials && restic snapshots'"
+ssh -t n8n "sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic snapshots && restic ls latest | grep database.sqlite'"
 ```
 
-Expected: shows at least one snapshot.
+Expected: at least one snapshot, containing `/var/backups/n8n/database.sqlite` and **no** `/var/lib/docker/volumes/.../database.sqlite`.
 
-### Task 9.3: Commit Phase 9
+### Task 9.2: Commit Phase 9
 
 - [ ] **Step 1:**
 
 ```bash
 cd ~/workspace/vpsconfig
 git add pyinfra/ .gitignore
-git commit -m "feat(backups): restic weekly snapshots of n8n volume to R2"
+git commit -m "feat(backups): daily restic snapshots of n8n volume + SQLite DB to R2"
 ```
 
 (The `restic-env` file is NOT staged — it's gitignored.)
@@ -2382,17 +2364,17 @@ ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo systemctl start rest
 ### List restic snapshots
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'source /etc/restic/r2-credentials && restic snapshots'"
+ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic snapshots'"
 ```
 
 ## n8n upgrade procedure
 
 1. Read changelog: https://docs.n8n.io/release-notes/
-2. Trigger immediate Postgres backup in Coolify UI.
+2. Take a fresh backup: `ssh -t n8n "sudo systemctl start restic-n8n-backup.service"` and confirm "backup complete" in the journal.
 3. In Coolify → n8n service → change Image tag (e.g., `1.79.0` → `1.84.0`) → **Redeploy**.
 4. Watch deploy logs for migration errors.
 5. Smoke test: log in, run a known-good workflow.
-6. If broken: revert image tag → redeploy. If schema migration ran, restore Postgres backup from step 2.
+6. If broken: revert image tag → redeploy. If a schema migration ran, restore the SQLite database from the step 2 snapshot (see "n8n database corrupted").
 
 ## Recovery procedures
 
@@ -2408,12 +2390,20 @@ ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'source /etc
 - Wait 1 hour, OR
 - Use VNC console: `sudo fail2ban-client unban <your-ip>`.
 
-### Postgres corrupted
+### n8n database corrupted (or bad migration)
 
-1. Coolify → `postgres-n8n` → **Stop**.
-2. Coolify → `postgres-n8n` → **Backups** → select latest known-good → **Restore**.
-3. Start service.
-4. Verify n8n still loads workflows.
+1. Coolify → `n8n` → **Stop**.
+2. Restore the SQLite snapshot to /tmp: `sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic restore latest --target /tmp/n8n-restore --include /var/backups/n8n/database.sqlite'` (use a snapshot ID instead of `latest` to go further back).
+3. Put it in place (the n8n container runs as uid 1000):
+   ```bash
+   VOL=$(sudo sh -c 'echo /var/lib/docker/volumes/*n8n-data*/_data')
+   sudo cp /tmp/n8n-restore/var/backups/n8n/database.sqlite "$VOL/database.sqlite"
+   sudo rm -f "$VOL/database.sqlite-wal" "$VOL/database.sqlite-shm"
+   sudo chown 1000:1000 "$VOL/database.sqlite"
+   sudo rm -rf /tmp/n8n-restore
+   ```
+4. Coolify → `n8n` → **Start**.
+5. Verify n8n still loads workflows and a stored credential decrypts.
 
 ### VPS dies entirely
 
@@ -2424,18 +2414,18 @@ ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'source /etc
 5. Run Phases 3, 4, 5, 6 of the plan in order.
 6. Update Pulumi VPS IPs: `cd pulumi && uv run pulumi config set satmur:vpsIPv4 <new-ip>`. `pulumi up`.
 7. In Coolify: delete old server, register new server (same SSH user, paste pubkey via `pyinfra/tasks/coolify_authorize.py`).
-8. Restore Postgres from R2 (via Coolify backup restore).
-9. Restore n8n volume from restic.
-10. Re-deploy n8n service in Coolify (paste env vars; encryption key from password manager).
-11. Smoke test webhook end-to-end.
+8. Re-deploy n8n in Coolify (Phase 8 Task 8.2; encryption key from password manager), then **Stop** it.
+9. Run Phase 9 (backups task) so restic + credentials are on the new host.
+10. Restore the latest restic snapshot: copy the volume contents back into the new `*n8n-data*` volume, and put `/var/backups/n8n/database.sqlite` back as `database.sqlite` (see "n8n database corrupted" for the commands).
+11. Start n8n. Smoke test webhook end-to-end.
 
 ### Suspected compromise
 
-DO NOT migrate data from old VPS without inspection. Reprovision fresh, rotate every secret (n8n encryption key, Postgres password, all Cloudflare API tokens, R2 access token).
+DO NOT migrate data from old VPS without inspection. Reprovision fresh, rotate every secret (n8n encryption key, restic repository password, all Cloudflare API tokens, R2 access token).
 
 ## Quarterly drills
 
-- **Backup restore drill** (every 3 months): pull latest Postgres backup from R2 → restore to local Docker Postgres on laptop → verify table counts match prod.
+- **Backup restore drill** (every 3 months): restore latest restic snapshot to /tmp on the VPS → `PRAGMA integrity_check` on the SQLite snapshot → verify workflow/credential counts match prod (Phase 12 Task 12.2).
 - **Cloudflare IP review** (every 6 months): re-check provider firewall in Virtualizor against current `https://www.cloudflare.com/ips-v4` and `ips-v6`.
 - **Token rotation** (annually, calendar reminders set): rotate both Cloudflare API tokens and R2 access token.
 ```
@@ -2526,83 +2516,46 @@ curl -X POST https://n8n.satmur.com/webhook/test -H "Content-Type: application/j
 
 In n8n UI → Executions, see a new entry with the payload.
 
-### Task 12.2: Backup restore drill (Postgres)
-
-- [ ] **Step 1: On your laptop, start a temporary Postgres container**
-
-```bash
-docker run --rm -d --name pg-restore-test \
-    -e POSTGRES_PASSWORD=test \
-    -e POSTGRES_USER=n8n \
-    -e POSTGRES_DB=n8n \
-    -p 55432:5432 \
-    postgres:16-alpine
-```
-
-- [ ] **Step 2: Download latest backup from R2**
-
-```bash
-mkdir -p /tmp/restore-test
-# Use rclone, mc, or aws-cli pointed at R2. Example with aws-cli:
-aws --endpoint-url https://<r2-account>.r2.cloudflarestorage.com \
-    s3 cp s3://satmur-backups/postgres/ /tmp/restore-test/ --recursive --exclude "*" --include "*.gz" \
-    --max-items 1 --order-by lastmodified
-```
-
-(Adjust to your R2 layout — Coolify's backup naming may differ.)
-
-- [ ] **Step 3: Restore into the test container**
-
-```bash
-gunzip -c /tmp/restore-test/<latest>.gz | docker exec -i pg-restore-test psql -U n8n -d n8n
-```
-
-- [ ] **Step 4: Verify table counts**
-
-```bash
-docker exec -it pg-restore-test psql -U n8n -d n8n -c "SELECT relname, n_live_tup FROM pg_stat_user_tables ORDER BY n_live_tup DESC;"
-```
-
-Compare counts to production (run the same query against prod via Coolify's database query UI or by tunneling). Counts should match within a small margin (few rows added since backup time).
-
-- [ ] **Step 5: Tear down**
-
-```bash
-docker stop pg-restore-test
-rm -rf /tmp/restore-test
-```
-
-- [ ] **Step 6: Add calendar reminder: "Quarterly restore drill — next: <date+90>"**
-
-### Task 12.3: Backup restore drill (n8n volume via restic)
+### Task 12.2: Backup restore drill (n8n volume + SQLite via restic)
 
 - [ ] **Step 1: On VPS, list snapshots**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'source /etc/restic/r2-credentials && restic snapshots'"
+ssh -t n8n "sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic snapshots'"
 ```
 
 - [ ] **Step 2: Restore latest snapshot to /tmp on the VPS (won't touch live data)**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo bash -c 'source /etc/restic/r2-credentials && restic restore latest --target /tmp/n8n-restore-test'"
+ssh -t n8n "sudo bash -c 'set -a && source /etc/restic/r2-credentials && set +a && restic restore latest --target /tmp/n8n-restore-test'"
 ```
 
-- [ ] **Step 3: Verify files present**
+- [ ] **Step 3: Verify files and database integrity**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo ls -la /tmp/n8n-restore-test/var/lib/docker/volumes/*/_data/ | head -20"
+ssh -t n8n 'sudo sh -c "ls -la /tmp/n8n-restore-test/var/lib/docker/volumes/*/_data/ && sqlite3 /tmp/n8n-restore-test/var/backups/n8n/database.sqlite \"PRAGMA integrity_check;\""'
 ```
 
-Expected: contents of `/home/node/.n8n/` — config, encryption key file, custom nodes if any.
+Expected: contents of `/home/node/.n8n/` (config, custom nodes if any — but no live `database.sqlite`), and `ok` from the integrity check.
 
-- [ ] **Step 4: Cleanup**
+- [ ] **Step 4: Compare row counts with production**
 
 ```bash
-ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo rm -rf /tmp/n8n-restore-test"
+Q="SELECT count(*) FROM workflow_entity; SELECT count(*) FROM credentials_entity;"
+ssh -t n8n "sudo sqlite3 /tmp/n8n-restore-test/var/backups/n8n/database.sqlite '$Q'; echo ---; sudo sh -c \"sqlite3 -readonly /var/lib/docker/volumes/*n8n-data*/_data/database.sqlite '$Q'\""
 ```
 
-### Task 12.4: Final checklist
+Expected: two numbers (workflows, credentials) above `---` matching the two below (or differ only by changes made since the snapshot).
+
+- [ ] **Step 5: Cleanup**
+
+```bash
+ssh -t n8n "sudo rm -rf /tmp/n8n-restore-test"
+```
+
+- [ ] **Step 6: Add calendar reminder: "Quarterly restore drill — next: <date+90>"**
+
+### Task 12.3: Final checklist
 
 - [ ] All sections of the spec have a corresponding implementation
 - [ ] All Cloudflare resources show in `pulumi stack`
@@ -2612,15 +2565,14 @@ ssh -i ~/.ssh/id_ed25519_vps maddalab@198.144.178.149 "sudo rm -rf /tmp/n8n-rest
 - [ ] `systemctl list-timers` shows: `cloudflare-ufw-update.timer`, `docker-prune.timer`, `restic-n8n-backup.timer`, `apt-daily.timer`, `apt-daily-upgrade.timer`
 - [ ] n8n reachable at `https://n8n.satmur.com` with valid TLS
 - [ ] Webhook test returns 200
-- [ ] Postgres backup visible in R2
-- [ ] restic snapshot exists in R2
+- [ ] restic snapshot (incl. `/var/backups/n8n/database.sqlite`) exists in R2
 - [ ] BetterStack monitor green
 - [ ] Encryption key in password manager
 - [ ] Sudo password for `maddalab` in password manager
 - [ ] All Cloudflare/R2 API tokens in password manager
 - [ ] All commits pushed to remote (if you've added one)
 
-### Task 12.5: Final commit + tag
+### Task 12.4: Final commit + tag
 
 - [ ] **Step 1: Tag the release**
 
@@ -2649,6 +2601,6 @@ git tag -a v1.0.0 -m "Initial production deployment of n8n on satmur.com"
 
 - **Pyinfra `local.include` vs imports**: Task 11.3 hedges between two patterns. Verify with `--dry` and pick the one that works in your pyinfra version.
 - **Cloudflare IP refresh script** assumes `ufw status numbered` parses cleanly. If Cloudflare adds a CIDR with weird formatting, the regex may miss it. Worst case: stale ranges. Best case: weekly refresh catches it.
-- **Coolify Cloud UI fields can drift between versions.** If Task 8.3 fields don't match, find the equivalent — env vars and the persistent volume are the load-bearing parts.
+- **Coolify Cloud UI fields can drift between versions.** If Task 8.2 fields don't match, find the equivalent — env vars and the persistent volume are the load-bearing parts.
 - **Pulumi Cloudflare provider 5.x → 6.x** may rename arguments. If you upgrade, run `pulumi preview` carefully.
-- **n8n version pinning**: `1.74.1` in the spec is a placeholder — Task 8.3 Step 1 instructs you to look up the latest stable at deploy time.
+- **n8n version pinning**: `1.74.1` in the spec is a placeholder — Task 8.2 Step 1 instructs you to look up the latest stable at deploy time.
